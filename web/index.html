@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <!-- スマホでの拡大・スクロールを抑止して、トラックパッドとして使いやすくする -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>スマホでマウス操作</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ===== 操作モード（メイン画面）===== -->
+  <div id="screen-control" class="screen active">
+    <div class="status-bar">
+      <span class="status-dot"></span>
+      <span class="status-text">待機中</span>
+    </div>
+
+    <!-- トラックパッド：残りの全領域を占有 -->
+    <div id="trackpad">
+      <div class="trackpad-hint">
+        ここを指でなぞってカーソル移動<br>
+        タップ＝左クリック / 2本指タップ＝右クリック / 2本指なぞり＝スクロール
+      </div>
+    </div>
+
+    <div class="click-buttons">
+      <button id="btn-left">左クリック</button>
+      <button id="btn-right">右クリック</button>
+    </div>
+    <button id="btn-open-keyboard">⌨ キーボードを開く</button>
+  </div>
+
+  <!-- ===== 入力モード（キーボード画面）===== -->
+  <div id="screen-keyboard" class="screen">
+    <div class="kb-top-bar">
+      <button id="btn-back">← 戻る</button>
+      <span class="status-dot"></span>
+      <span class="status-text">待機中</span>
+    </div>
+
+    <!-- 上半分：入力エリア（下半分はスマホのソフトキーボードがせり上がる）-->
+    <div class="kb-input-area">
+      <input id="kb-input" type="text"
+             placeholder="ここに入力すると PC に送られます"
+             autocomplete="off" autocorrect="off" autocapitalize="off">
+      <div id="kb-display"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

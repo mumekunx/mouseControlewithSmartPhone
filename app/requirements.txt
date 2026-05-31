@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+pynput
+pystray
+pillow
+qrcode
+psutil

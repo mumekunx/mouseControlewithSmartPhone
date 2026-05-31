@@ -1,0 +1,92 @@
+/* 全体：縦持ち固定・スクロール禁止 */
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body {
+  font-family: -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
+  background: #f0f0f3;
+  -webkit-touch-callout: none;  /* 長押しメニュー無効 */
+  user-select: none;            /* テキスト選択無効 */
+  -webkit-user-select: none;
+}
+
+/* 画面（モード）切替：active が付いた方だけ表示する */
+.screen {
+  display: none;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  flex-direction: column;
+}
+.screen.active { display: flex; }
+
+/* 接続状況バー */
+.status-bar, .kb-top-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 14px;
+}
+.status-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: #bbb;           /* 未接続：灰 */
+  display: inline-block;
+}
+.status-dot.connected { background: #2ecc40; }  /* 接続中：緑 */
+
+/* トラックパッド：残り全部の高さを使う */
+#trackpad {
+  flex: 1;
+  margin: 8px 0;
+  background: #fff;
+  border: 2px dashed #c5c5cc;
+  border-radius: 12px;
+  touch-action: none;          /* ブラウザ既定のスクロール/ズームを無効化 */
+  user-select: none;
+  -webkit-touch-callout: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.trackpad-hint {
+  color: #aaa;
+  font-size: 13px;
+  text-align: center;
+  line-height: 1.7;
+  padding: 0 12px;
+}
+
+/* ボタン類：指で押しやすい大きさ */
+button {
+  font-size: 16px;
+  min-height: 48px;
+  border: none;
+  border-radius: 10px;
+  background: #4a6cf7;
+  color: #fff;
+}
+button:active { background: #3550c8; }
+.click-buttons { display: flex; gap: 8px; }
+.click-buttons button { flex: 1; }
+#btn-open-keyboard { margin-top: 8px; width: 100%; background: #5a5a66; }
+
+/* 入力モード */
+.kb-top-bar #btn-back { min-height: 36px; padding: 0 12px; background: #5a5a66; }
+.kb-input-area { padding: 8px; }
+#kb-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 18px;
+  padding: 12px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  user-select: text;            /* 入力欄だけは選択・編集を許可 */
+  -webkit-user-select: text;
+}
+#kb-display {
+  margin-top: 10px;
+  min-height: 40px;
+  color: #555;
+  font-size: 14px;
+  word-break: break-all;
+}
