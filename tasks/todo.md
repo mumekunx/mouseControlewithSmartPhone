@@ -49,13 +49,15 @@
 - [x] `app/controller.py`: `SENSITIVITY` を可変化、`sensitivity` type ハンドラ追加（0.1〜5.0クランプ）
 - [ ] 実機確認（感度の効き） ← ユーザー環境で
 
-### (3) 入力欄テキストの読み取り→スマホで編集
-- [ ] 技術調査: macOS AX API（AXFocusedUIElement→AXValue）/ Windows UI Automation でフォーカス要素のテキスト取得PoC
-- [ ] 新規 `app/textfield.py`: OS別の「フォーカス入力欄のテキスト取得」
-- [ ] 往復メッセージ: スマホ「編集モード」要求 → `{type:"fieldtext", text}` で返信
-- [ ] `web/`: 取得テキストを編集するUI、確定で置換（全選択→削除→type、または差分）
-- [ ] 取得失敗時フォールバック（従来の追記入力に戻す）
-- [ ] ※難易度高・権限/対応OS課題あり。単独 feature ブランチで進める
+### (3) 〔再スコープ〕入力欄テキスト読み取り編集 → ライブIME入力に変更
+- ~~AX/クリップボードでフォーカス欄テキストを読み取り→スマホで編集→置換~~ → **不要と判断**（双方向化・権限・対応OS課題が重く、目的に対して過剰）
+- 代わりに「**変換中の日本語を確定前からPCにライブ反映**」を実装（ブランチ `feature/20260602-1600-live-ime`）
+- [x] `web/app.js`: `compositionupdate` で前方一致差分 `{type:'compose', back, add}` を送信、`compositionend` でリセット
+- [x] `app/controller.py`: `compose` ハンドラ（backspace×back → add を type、ステートレス）
+- [x] 差分ロジックの単体検証（node: 通常変換/end-only劣化/途中削除/キャンセル/絵文字/連続入力 全PASS）
+- [x] 構文チェック（py_compile / node --check）
+- [ ] 実機確認（iOS Safari / Android で変換中ライブ反映・確定・削除の挙動） ← ユーザー環境で
+- [ ] detail.md / teach.md 反映（detail.md は更新済み）
 
 ## 今後の課題（v1 スコープ外）
 - [ ] コード署名・公証（Gatekeeper / SmartScreen 警告の解消）

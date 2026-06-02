@@ -165,15 +165,40 @@ trackpad.addEventListener('contextmenu', (e) => e.preventDefault());
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 
 // ===== キーボード入力（リアルタイム送信 + 日本語IME対応）=====
-let composing = false; // 変換中かどうか
+// 変換中の日本語も「打ちながら」PCにライブ反映する。
+// スマホのIMEが作る変換中文字列(composition)を、前回PCへ反映済みの文字列との
+// 前方一致差分だけ送って置き換える（{type:'compose', back, add}）。
+let composing = false;   // 変換中かどうか
+let composedCP = [];     // 今PC側に「変換中」として反映済みの文字列（コードポイント配列）
 
-kbInput.addEventListener('compositionstart', () => { composing = true; });
+// 現在の変換中文字列 cur を、前回反映済み composedCP との差分にしてPCへ送る。
+function pushComposition(cur) {
+  const next = Array.from(cur || '');             // コードポイント単位（絵文字=1要素）
+  let i = 0;
+  const n = Math.min(composedCP.length, next.length);
+  while (i < n && composedCP[i] === next[i]) i++; // 共通プレフィックスの長さ
+  const back = composedCP.length - i;             // PC側で消す文字数
+  const add = next.slice(i).join('');             // PC側で足す文字
+  if (back > 0 || add.length > 0) send({ type: 'compose', back, add });
+  composedCP = next;
+}
+
+kbInput.addEventListener('compositionstart', () => {
+  composing = true;
+  composedCP = [];   // 新しい変換の開始。PC側にはまだ何も反映していない
+});
+
+kbInput.addEventListener('compositionupdate', (e) => {
+  // 変換中（ひらがな入力中・候補選択中）の途中経過をライブでPCへ反映する。
+  pushComposition(e.data);
+});
+
 kbInput.addEventListener('compositionend', (e) => {
   composing = false;
-  if (e.data) {
-    send({ type: 'text', text: e.data });  // 変換が確定した文字列だけ送る
-    appendDisplay(e.data);
-  }
+  // 最終の差分を反映。compositionupdate を出さない端末でも、ここで確定文字が入る（従来挙動に劣化）。
+  pushComposition(e.data);
+  if (e.data) appendDisplay(e.data);
+  composedCP = [];   // 確定したので「変換中」状態をリセット（PC上の確定文字はそのまま残す）
   kbInput.value = '';
 });
 

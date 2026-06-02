@@ -1,5 +1,17 @@
 # 進捗ログ（新しいものが上）
 
+## 2026-06-02 16:00 — ライブIME入力（変換中の日本語を確定前からPCにリアルタイム反映）
+- **依頼**: 機能(3)を再スコープ。当初の「PC側入力欄テキストを読み取って編集」は不要に。代わりに「スマホで日本語を打ちながら、変換確定前のひらがな/変換途中をPCにライブ反映」したい。文章全体の取得・編集はしない。入力だけリアルタイムにPCへ。
+- **背景の設計議論**: 既存キーボードは `compositionend`（変換確定）でしか送らず、変換中はPCに何も出ない。これを `compositionupdate` ごとに送ってライブ化する。読み取り編集(AX/クリップボード往復・双方向化)は不要になり、難所が消えてスコープが大幅縮小。
+- **方式（ライブIMEミラー / 前方一致差分）**:
+  - スマホ側 `web/app.js`: `compositionupdate` ごとに「前回PCに反映済みの文字列」との共通プレフィックスを除いた差分だけを `{type:'compose', back:N, add:"..."}` で送る。コードポイント単位で差分（絵文字対策）。`compositionend` で最終差分を送ってから in-progress 状態をリセット（PC上の確定文字は残す）。
+  - PC側 `app/controller.py`: `compose` を受けて `backspace × back → add を type`。状態を持たないステートレス処理。pynput の `type()` は文字を直接挿入するのでPC側IMEを起動せずリテラルに入る（二重変換なし）。
+  - **後方互換**: `compositionupdate` を出さない端末でも `compositionend` の最終差分で従来通り確定時に入る＝自動で旧挙動に劣化。
+- **影響範囲**: `web/app.js`（compositionハンドラ改修）, `app/controller.py`（compose type追加）の2ファイルのみ。`web/index.html`/`style.css` は変更なし（既存の入力モード画面をそのまま使う）。
+- **ブランチ**: `feature/20260602-1600-live-ime`（v2作業は `moreEasy` に f605ddf でコミット済み）。
+- **リスク（実機確認必須）**: モバイルIMEの composition イベント挙動は端末差大（iOS Safari / Android Gboard）。大きな変換でのbackspace連打チラつき（前方一致差分で軽減）。PC側欄のオートコンプリート干渉でずれる可能性。
+- **進捗 (16:0x)**: 実装完了。`app/controller.py` に `compose` ハンドラ追加、`web/app.js` の composition 処理を差分ライブ送信に改修。検証: `py_compile`/`node --check` OK、差分ロジックの単体テスト（node）で通常変換/end-only劣化/途中削除/キャンセル/絵文字/連続入力の全6ケースPASS。detail.md/teach.md(第9章)/todo.md 更新済み。**実機での日本語ライブ反映はユーザー確認待ち**（[[pynput-gui-cannot-launch-from-claude-bash]] と同様、起動はユーザーのTerminalで）。
+
 ## 2026-06-02 05:02 — 次フェーズ機能3件の立案（ドラッグ&ドロップ / 感度・DPI調整 / 入力欄テキスト編集）
 - **依頼**: 起動成功後の次TODOとして3機能。(1) クリック長押しでドラッグ&ドロップ、(2) DPI（カーソル感度）を変更できるように、(3) PC側の入力欄の文字を認識→スマホに送って、元の文章を編集できる文字入力。
 - **方針/影響範囲**（実装は別ブランチ。ここは立案のみ）:

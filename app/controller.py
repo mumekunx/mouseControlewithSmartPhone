@@ -75,6 +75,18 @@ def handle_message(msg: dict) -> None:
         elif mtype == "up":
             _mouse.release(_Button.left)
 
+        elif mtype == "compose":
+            # 変換中（IME composition）のライブ反映。スマホ側が「前回反映済みの文字列」との
+            # 前方一致差分を計算し、消す数(back)と足す文字(add)だけ送ってくる。
+            # ここでは backspace を back 回 → add を type するだけ（状態を持たないので壊れにくい）。
+            back = int(msg.get("back", 0))
+            add = str(msg.get("add", ""))
+            for _ in range(max(0, back)):
+                _keyboard.press(_Key.backspace)
+                _keyboard.release(_Key.backspace)
+            if add:
+                _keyboard.type(add)
+
         elif mtype == "text":
             _keyboard.type(str(msg.get("text", "")))
 
