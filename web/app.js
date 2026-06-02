@@ -31,11 +31,13 @@ const kbInput = document.getElementById('kb-input');
 document.getElementById('btn-open-keyboard').addEventListener('click', () => {
   screenControl.classList.remove('active');
   screenKeyboard.classList.add('active');
+  resetMirror();   // 入力欄とPC対応を初期化してから
   kbInput.focus(); // ソフトキーボードを出す
 });
 document.getElementById('btn-back').addEventListener('click', () => {
   screenKeyboard.classList.remove('active');
   screenControl.classList.add('active');
+  resetMirror();   // 途中のバッファを残さない
   kbInput.blur();
 });
 
@@ -50,6 +52,11 @@ let accDx = 0, accDy = 0;       // 1フレーム分の移動量を貯める
 let rafPending = false;
 let startX = 0, startY = 0, startTime = 0, maxTouches = 0;
 let scrollLastX = 0, scrollLastY = 0;
+
+// 2本指ピンチ（拡大縮小）用の状態
+const ZOOM_STEP_PX = 28;   // 指間距離がこの分だけ変わるごとに1段ズーム
+let pinchLastDist = 0;     // 直前フレームの指間距離
+let pinchAccum = 0;        // ズーム1段に満たない距離変化の貯金
 
 // 長押しドラッグ用の状態
 const LONG_PRESS_MS = 450;   // この時間ほぼ動かさず保持したらドラッグ開始
@@ -84,9 +91,13 @@ trackpad.addEventListener('touchstart', (e) => {
   startTime = Date.now();
   maxTouches = e.touches.length;
   if (e.touches.length === 2) {
-    // 2本指の重心を記録（スクロール用）
+    // 2本指の重心（スクロール用）と指間距離（ピンチズーム用）を記録
     scrollLastX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
     scrollLastY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    pinchLastDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY);
+    pinchAccum = 0;
   }
   // 1本指で置いたら長押しタイマー開始（保持し続けたらドラッグ開始）
   clearPressTimer();
@@ -116,15 +127,28 @@ trackpad.addEventListener('touchmove', (e) => {
   }
 
   if (e.touches.length >= 2) {
-    // 2本指 → スクロール（重心の移動量）。長押し判定は中止。
+    // 2本指。長押し判定は中止。
     clearPressTimer();
     const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
     const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-    const dx = cx - scrollLastX;
-    const dy = cy - scrollLastY;
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY);
+
+    const dDist = dist - pinchLastDist;                   // 指間距離の変化（＝ピンチ量）
+    const centroidMove = Math.hypot(cx - scrollLastX, cy - scrollLastY); // 重心の移動（＝パン量）
+    pinchLastDist = dist;
+
+    if (Math.abs(dDist) > centroidMove) {
+      // ピンチ優勢のフレーム → 拡大縮小。距離変化を貯めて、しきい値ごとに1段送る。
+      pinchAccum += dDist;
+      while (pinchAccum >= ZOOM_STEP_PX)  { send({ type: 'zoom', dir: 'in'  }); pinchAccum -= ZOOM_STEP_PX; }
+      while (pinchAccum <= -ZOOM_STEP_PX) { send({ type: 'zoom', dir: 'out' }); pinchAccum += ZOOM_STEP_PX; }
+    } else {
+      // パン優勢のフレーム → スクロール（指を下へ動かすと下方向になるよう dy 反転）
+      send({ type: 'scroll', dx: cx - scrollLastX, dy: -(cy - scrollLastY) });
+    }
     scrollLastX = cx; scrollLastY = cy;
-    // 指を下へ動かすと下方向スクロールになるよう dy の符号を反転
-    send({ type: 'scroll', dx: dx, dy: -dy });
   } else {
     // 1本指 → カーソル移動（差分を貯めて rAF で間引き送信）
     const t = e.touches[0];
@@ -164,61 +188,60 @@ trackpad.addEventListener('touchend', (e) => {
 trackpad.addEventListener('contextmenu', (e) => e.preventDefault());
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 
-// ===== キーボード入力（リアルタイム送信 + 日本語IME対応）=====
-// 変換中の日本語も「打ちながら」PCにライブ反映する。
-// スマホのIMEが作る変換中文字列(composition)を、前回PCへ反映済みの文字列との
-// 前方一致差分だけ送って置き換える（{type:'compose', back, add}）。
-let composing = false;   // 変換中かどうか
-let composedCP = [];     // 今PC側に「変換中」として反映済みの文字列（コードポイント配列）
+// ===== キーボード入力（入力欄の実値をライブミラー）=====
+// 入力欄(kbInput)の「実際の値」を唯一の正とし、input イベントごとに
+// 前回PCへ反映済みとの前方一致差分だけ送る（{type:'compose', back, add}）。
+// これで日本語の変換中・濁点・削除・英数をすべて1経路で扱え、値が同じなら
+// 差分ゼロ＝二重送信が原理的に起きない（冪等）。iOS Safari の composition/keydown
+// 二重発火や、確定ごとのクリア由来のバグ（濁点で旧文字が残る等）を根本回避する。
+let mirroredCP = [];   // PCに反映済みの「入力欄の値」（コードポイント配列）
 
-// 現在の変換中文字列 cur を、前回反映済み composedCP との差分にしてPCへ送る。
-function pushComposition(cur) {
-  const next = Array.from(cur || '');             // コードポイント単位（絵文字=1要素）
-  let i = 0;
-  const n = Math.min(composedCP.length, next.length);
-  while (i < n && composedCP[i] === next[i]) i++; // 共通プレフィックスの長さ
-  const back = composedCP.length - i;             // PC側で消す文字数
-  const add = next.slice(i).join('');             // PC側で足す文字
-  if (back > 0 || add.length > 0) send({ type: 'compose', back, add });
-  composedCP = next;
+function resetMirror() {
+  // 入力欄をクリアし、PC側との対応もリセット（PC上の確定済み文字は残す）
+  kbInput.value = '';
+  mirroredCP = [];
 }
 
-kbInput.addEventListener('compositionstart', () => {
-  composing = true;
-  composedCP = [];   // 新しい変換の開始。PC側にはまだ何も反映していない
-});
+// 入力欄の現在値を、前回反映済み mirroredCP との差分にしてPCへ送る。
+function syncFromInput() {
+  const cur = Array.from(kbInput.value);          // コードポイント単位（絵文字=1要素）
+  let i = 0;
+  const n = Math.min(mirroredCP.length, cur.length);
+  while (i < n && mirroredCP[i] === cur[i]) i++;  // 共通プレフィックスの長さ
+  const back = mirroredCP.length - i;             // PC側で消す文字数
+  const add = cur.slice(i).join('');              // PC側で足す文字
+  if (back > 0 || add.length > 0) {
+    send({ type: 'compose', back, add });
+    if (add) appendDisplay(add);
+  }
+  mirroredCP = cur;
+}
 
-kbInput.addEventListener('compositionupdate', (e) => {
-  // 変換中（ひらがな入力中・候補選択中）の途中経過をライブでPCへ反映する。
-  pushComposition(e.data);
-});
+// 文字入力・変換・削除はすべて input で拾う（変換中 isComposing でもライブ反映）。
+kbInput.addEventListener('input', syncFromInput);
+// compositionend 後の最終状態も念のため同期（端末差の保険）。
+kbInput.addEventListener('compositionend', syncFromInput);
 
-kbInput.addEventListener('compositionend', (e) => {
-  composing = false;
-  // 最終の差分を反映。compositionupdate を出さない端末でも、ここで確定文字が入る（従来挙動に劣化）。
-  pushComposition(e.data);
-  if (e.data) appendDisplay(e.data);
-  composedCP = [];   // 確定したので「変換中」状態をリセット（PC上の確定文字はそのまま残す）
-  kbInput.value = '';
-});
-
-// 特殊キー：JSのキー名 → サーバーへ送るキー名
-const SPECIAL = { 'Enter': 'enter', 'Backspace': 'backspace', 'Tab': 'tab', 'Escape': 'esc', ' ': 'space' };
-
+// 特殊キーは入力欄の値に出ない（または出したくない）ので keydown で個別に送る。
 kbInput.addEventListener('keydown', (e) => {
-  if (composing) return; // 変換中は何もしない（IME に任せる）
+  if (e.isComposing) return; // 変換中（Enterでの変換確定など）はIMEに任せる
 
-  if (e.key in SPECIAL) {
-    send({ type: 'key', key: SPECIAL[e.key] });
-    appendDisplay(e.key === ' ' ? '␣' : e.key);
+  if (e.key === 'Enter') {
+    send({ type: 'key', key: 'enter' });
+    appendDisplay('⏎');
     e.preventDefault();
-    kbInput.value = '';
-  } else if (e.key.length === 1) {
-    // 通常の1文字（英数記号）はそのまま送る
-    send({ type: 'text', text: e.key });
-    appendDisplay(e.key);
-    e.preventDefault();
-    kbInput.value = '';
+    resetMirror();            // 1行送信＝区切り。バッファをリセットして次へ
+  } else if (e.key === 'Backspace') {
+    // 入力欄に文字があるときは input(削除) が差分を送るので、ここでは何もしない。
+    // 空のときだけ PC 側の既存文字を1つ消す。
+    if (kbInput.value.length === 0) {
+      send({ type: 'key', key: 'backspace' });
+      e.preventDefault();
+    }
+  } else if (e.key === 'Tab') {
+    send({ type: 'key', key: 'tab' }); appendDisplay('⇥'); e.preventDefault();
+  } else if (e.key === 'Escape') {
+    send({ type: 'key', key: 'esc' }); e.preventDefault();
   }
 });
 
@@ -228,24 +251,29 @@ function appendDisplay(s) {
   kbDisplay.textContent = (kbDisplay.textContent + s).slice(-60);
 }
 
-// ===== カーソル感度（DPI）スライダー =====
-const sensSlider = document.getElementById('sens-slider');
-const sensValue = document.getElementById('sens-value');
+// ===== カーソル感度（DPI）：ステータスバーのセレクト（iOS Safari ではロール選択になる）=====
+const sensSelect = document.getElementById('sens-select');
 
 function sendSensitivity() {
   // 接続時・変更時に現在の感度を PC に送る
-  if (sensSlider) send({ type: 'sensitivity', value: Number(sensSlider.value) });
+  if (sensSelect) send({ type: 'sensitivity', value: Number(sensSelect.value) });
 }
 
-if (sensSlider) {
-  // 前回値を復元（localStorage）
+if (sensSelect) {
+  // 0.5〜3.0 を 0.1 刻みで選択肢生成（×0.5 …のように表示）
+  for (let v = 0.5; v <= 3.0001; v += 0.1) {
+    const val = v.toFixed(1);
+    const opt = document.createElement('option');
+    opt.value = val;
+    opt.textContent = '×' + val;
+    sensSelect.appendChild(opt);
+  }
+  // 前回値を復元（localStorage）。無ければ既定 1.5。
   const saved = localStorage.getItem('sensitivity');
-  if (saved !== null) sensSlider.value = saved;
-  sensValue.textContent = Number(sensSlider.value).toFixed(1);
+  sensSelect.value = (saved !== null && saved !== '') ? Number(saved).toFixed(1) : '1.5';
 
-  sensSlider.addEventListener('input', () => {
-    sensValue.textContent = Number(sensSlider.value).toFixed(1);
-    localStorage.setItem('sensitivity', sensSlider.value);
+  sensSelect.addEventListener('change', () => {
+    localStorage.setItem('sensitivity', sensSelect.value);
     sendSensitivity();
   });
 }

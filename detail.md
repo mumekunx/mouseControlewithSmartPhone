@@ -15,7 +15,7 @@
 - 主要:
   - `SENSITIVITY: float = 1.5` … マウス感度。`sensitivity` メッセージで実行時に変更（0.1〜5.0にクランプ）。
   - `_ensure()` … pynput を**初回操作時に遅延 import** して Controller を用意（import 時の Quartz 初期化＝起動ハングを回避）。
-  - `handle_message(msg: dict) -> None` … `type`（move/click/scroll/down/up/text/key/**sensitivity**/**compose**）で分岐。`sensitivity` は感度を更新して即return（pynput不要）。`down`/`up` は左ボタンの押下/解放＝長押しドラッグに使用。`compose` は変換中日本語のライブ反映用で、`back`回 backspace してから `add` を `type`（前方一致差分。スマホ側が差分を計算して送る＝ここはステートレス）。例外は握りつぶす。
+  - `handle_message(msg: dict) -> None` … `type`（move/click/scroll/down/up/text/key/**sensitivity**/**compose**/**zoom**）で分岐。`sensitivity` は感度を更新して即return（pynput不要）。`down`/`up` は左ボタンの押下/解放＝長押しドラッグに使用。`compose` は文字入力のライブ反映用で、`back`回 backspace してから `add` を `type`（前方一致差分。スマホ側が差分を計算して送る＝ここはステートレス）。`zoom` は `_ZOOM_MOD`(mac=Cmd/他=Ctrl) を押しながら `=`(in)/`-`(out)＝拡大縮小。例外は握りつぶす。
 - 依存: `pynput`（遅延 import）。
 - 被参照: `app/server.py`（受信メッセージを渡す）。
 
@@ -74,7 +74,7 @@
 
 ## web/index.html
 - 役割: スマホ UI。2画面（`#screen-control` 操作モード / `#screen-keyboard` 入力モード）。`style.css` と `app.js` を読み込む。
-- 主要 id/class: `#trackpad`, `#btn-left`, `#btn-right`, `#btn-open-keyboard`, `#btn-back`, `#kb-input`, `#kb-display`, `#sens-slider`/`#sens-value`(感度スライダー), `.sensitivity-row`, `.status-dot`, `.status-text`, `.screen.active`。
+- 主要 id/class: `#trackpad`, `#btn-left`, `#btn-right`, `#btn-open-keyboard`, `#btn-back`, `#kb-input`, `#kb-display`, `#sens-select`(感度セレクト＝ステータスバー右端、JSで選択肢生成), `.sens-pick`, `.status-dot`, `.status-text`, `.screen.active`。
 - 依存: `web/style.css`, `web/app.js`。
 - 被参照: `app/server.py`（StaticFiles で配信）。
 
@@ -84,18 +84,18 @@
 - 被参照: `app/main.py`（起動時に `webbrowser.open`）。
 
 ## web/style.css
-- 役割: 縦持ち固定・拡大/選択抑止・トラックパッドが残り全領域を占有するレイアウト。`.screen.active` で画面切替、`.status-dot.connected` で接続色。
+- 役割: 縦持ち固定・拡大/選択抑止・トラックパッドが残り全領域を占有するレイアウト。`.screen.active` で画面切替、`.status-dot.connected` で接続色、`.sens-pick`(感度セレクトをステータスバー右端に `margin-left:auto` で寄せる)。
 - 依存/被参照: `index.html`。
 
 ## web/app.js
 - 役割: WebSocket クライアント＋トラックパッド判定＋キーボード入力。
 - 主要:
   - `connect()` / `send(obj)` / `setConnected(ok)` … WS 接続（自動再接続）と送信、接続表示更新。
-  - トラックパッド: touchstart/move/end で 1本指=move(rAF間引き) / タップ=click / 2本指=scroll・右クリック。
+  - トラックパッド: touchstart/move/end で 1本指=move(rAF間引き) / タップ=click / 2本指=scroll または **ピンチ拡大縮小** / 2本指タップ=右クリック。
   - 長押しドラッグ: 1本指を `LONG_PRESS_MS`(450ms) ほぼ静止保持で `down` 送信＝つかむ→移動でドラッグ→touchend で `up`＝ドロップ。`clearPressTimer()`/`isDragging`/`#trackpad.dragging` で制御。`MOVE_CANCEL_PX` 以上動くか2本指で長押し判定を解除。
-  - 感度スライダー: `#sens-slider`(0.5〜3.0) を `input` で `{type:'sensitivity'}` 送信＋localStorage保存、接続時(`sendSensitivity()`)に再同期。
-  - キーボード（ライブIME）: `compositionstart`/`compositionupdate`/`compositionend` で**変換中の日本語も打ちながらPCへライブ反映**。`keydown`(英数即送信・特殊キー)。
-  - `pushComposition(cur)` … 変換中文字列を、前回反映済み `composedCP`（コードポイント配列）との前方一致差分にして `{type:'compose', back, add}` で送る。`compositionend` でリセット。`compositionupdate` 非対応端末では確定時に最終差分が出る＝従来挙動に劣化。
+  - ピンチズーム: 2本指の指間距離の変化を貯め、`ZOOM_STEP_PX`(28px) ごとに `{type:'zoom', dir:'in'|'out'}` を送る。フレームごとに「距離変化 > 重心移動」ならピンチ(ズーム)、そうでなければスクロールに振り分け（パンとズームを両立）。
+  - 感度セレクト: ステータスバー右端の `#sens-select`(0.5〜3.0、0.1刻みをJS生成)。`change` で `{type:'sensitivity'}` 送信＋localStorage保存、接続時(`sendSensitivity()`)に再同期。iOS Safari ではロール(ホイール)選択になる。
+  - キーボード（入力欄の実値をライブミラー）: `kbInput` の**実際の値**を唯一の正とし、`input` イベントごとに `syncFromInput()` が前回反映済み `mirroredCP`（コードポイント配列）との前方一致差分 `{type:'compose', back, add}` を送る。値が同じなら差分ゼロ＝**二重送信が起きない（冪等）**。日本語の変換中・濁点・削除・英数を1経路で処理し、iOSの composition/keydown 二重発火やクリア由来バグを根本回避。特殊キー(Enter/Backspace空時/Tab/Esc)のみ `keydown`(変換中は `e.isComposing` で除外)。Enter/画面切替で `resetMirror()`。
   - `appendDisplay(s)` … 送信内容の確認表示。
 - 依存: なし（素の JS）。被参照: `index.html`。
 
