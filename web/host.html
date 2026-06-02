@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>スマホでマウス操作 — 接続</title>
+  <style>
+    body { font-family: -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
+           background: #f0f0f3; margin: 0; min-height: 100vh;
+           display: flex; align-items: center; justify-content: center; }
+    .card { background: #fff; border-radius: 16px; padding: 32px 40px; text-align: center;
+            box-shadow: 0 8px 30px rgba(0,0,0,.08); max-width: 460px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    p  { color: #555; margin: 6px 0; }
+    img { width: 280px; height: 280px; image-rendering: pixelated; margin: 12px 0; }
+    .url { font-size: 18px; font-weight: bold; color: #2b50d8; word-break: break-all; }
+    .alt { font-size: 13px; color: #888; margin-top: 10px; }
+    .note { font-size: 13px; color: #b00; margin-top: 16px; }
+    .ts-box { font-size: 13px; color: #444; margin-top: 16px; background: #f5f7ff;
+              border: 1px solid #d6ddf5; border-radius: 10px; padding: 12px 14px; text-align: left; }
+    .ts-box a { color: #2b50d8; font-weight: bold; }
+    .ts-box ol { margin: 6px 0 0; padding-left: 20px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>📱 スマホのカメラでこの QR を読み取ってください</h1>
+    <p>PC とスマホを同じ Wi-Fi につないでおいてください</p>
+    <img src="/qr.png" alt="接続用QRコード">
+    <p class="url" id="url">読み込み中…</p>
+    <p class="alt" id="alt"></p>
+    <div class="ts-box" id="ts-box"></div>
+    <p class="note">※ Mac は初回、システム設定 →「プライバシーとセキュリティ」→「アクセシビリティ」で
+       このアプリを許可してください（カーソルが動かないとき）。</p>
+  </div>
+
+  <script>
+    // /info から接続URLを取得して表示（QR が読めない場合は手入力できるように）
+    fetch('/info').then(r => r.json()).then(d => {
+      document.getElementById('url').textContent = d.url;
+      const others = (d.urls || []).filter(u => u !== d.url);
+      if (others.length) {
+        document.getElementById('alt').textContent = 'つながらない場合: ' + others.join(' / ');
+      }
+      // Tailscale の状態に応じた案内
+      const box = document.getElementById('ts-box');
+      if (d.tailscale) {
+        box.innerHTML =
+          '🔒 <b>Tailscale 経由</b>の URL です。スマホ側でも Tailscale を ON にして、この QR を読んでください。' +
+          '（職場・共用 Wi-Fi などクライアント分離された回線でも接続できます）';
+      } else {
+        box.innerHTML =
+          'ℹ️ いまは<b>同じ Wi-Fi 用</b>の URL です。普通の家の Wi-Fi ならこのまま QR を読めば使えます。<br>' +
+          '職場・共用 Wi-Fi（端末間通信が禁止された回線）で繋がらない場合は、Tailscale を使ってください:' +
+          '<ol>' +
+          '<li>PC とスマホに <a href="https://tailscale.com/download" target="_blank" rel="noopener">Tailscale をインストール</a></li>' +
+          '<li>両方を<b>同じアカウント</b>でサインインして ON</li>' +
+          '<li>このアプリを再起動 → QR が自動で Tailscale 用に切り替わります</li>' +
+          '</ol>';
+      }
+    }).catch(() => {});
+  </script>
+</body>
+</html>

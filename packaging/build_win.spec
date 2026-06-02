@@ -8,23 +8,22 @@
 #   - hiddenimports は不足が出たらビルドエラーを見て追記する。
 import os
 
-repo_root = os.path.abspath(os.getcwd())
+repo_root = os.path.abspath(os.path.join(SPECPATH, ".."))
 
 a = Analysis(
-    ['../app/main.py'],
+    [os.path.join(repo_root, "app", "main.py")],
     pathex=[repo_root],
     binaries=[],
-    datas=[('../web', 'web')],  # スマホ UI を同梱（server.resource_path が参照）
+    datas=[(os.path.join(repo_root, "web"), "web")],  # スマホ UI / ホストページを同梱
     hiddenimports=[
-        'pynput.mouse._win32', 'pynput.keyboard._win32',
-        'pystray._win32',
-        'PIL.ImageTk',
-        'uvicorn.logging', 'uvicorn.loops.auto',
-        'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets.auto',
-        'uvicorn.lifespan.on',
+        "pynput.mouse._win32", "pynput.keyboard._win32",
+        "pystray._win32",
+        "uvicorn.logging", "uvicorn.loops.auto",
+        "uvicorn.protocols.http.auto", "uvicorn.protocols.websockets.auto",
+        "uvicorn.lifespan.on",
     ],
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=[], noarchive=False,
 )
 pyz = PYZ(a.pure)
 # onefile: a.binaries と a.datas を EXE に含め、COLLECT を使わない
-exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name='PhoneMouse', console=False)
+exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name="PhoneMouse", console=False)

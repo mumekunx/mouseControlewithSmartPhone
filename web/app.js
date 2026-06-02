@@ -5,7 +5,7 @@ let ws = null;
 
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onopen = () => setConnected(true);
+  ws.onopen = () => { setConnected(true); sendSensitivity(); }; // 接続できたら現在の感度をPCに同期
   ws.onclose = () => { setConnected(false); setTimeout(connect, 2000); }; // 2秒後に再接続
   ws.onerror = () => { try { ws.close(); } catch (e) {} };
 }
@@ -51,6 +51,16 @@ let rafPending = false;
 let startX = 0, startY = 0, startTime = 0, maxTouches = 0;
 let scrollLastX = 0, scrollLastY = 0;
 
+// 長押しドラッグ用の状態
+const LONG_PRESS_MS = 450;   // この時間ほぼ動かさず保持したらドラッグ開始
+const MOVE_CANCEL_PX = 10;   // これ以上動いたら「長押し」ではなく通常移動とみなす
+let pressTimer = null;       // 長押し判定タイマー
+let isDragging = false;      // 左ボタンを押しっぱなし（ドラッグ中）か
+
+function clearPressTimer() {
+  if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+}
+
 // 貯めた移動量を1フレームに1回だけ送る（送りすぎを防ぐ＝間引き）
 function flushMove() {
   rafPending = false;
@@ -78,14 +88,36 @@ trackpad.addEventListener('touchstart', (e) => {
     scrollLastX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
     scrollLastY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
   }
+  // 1本指で置いたら長押しタイマー開始（保持し続けたらドラッグ開始）
+  clearPressTimer();
+  if (e.touches.length === 1) {
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      isDragging = true;
+      send({ type: 'down' });                       // 左ボタンを押しっぱなしにする
+      if (navigator.vibrate) navigator.vibrate(30);  // 触覚フィードバック
+      trackpad.classList.add('dragging');            // 視覚フィードバック
+    }, LONG_PRESS_MS);
+  }
 }, { passive: false });
 
 trackpad.addEventListener('touchmove', (e) => {
   e.preventDefault();
   maxTouches = Math.max(maxTouches, e.touches.length);
 
+  if (isDragging) {
+    // ドラッグ中：1本指の移動でそのままドラッグ（ボタンは押下済み）
+    const t = e.touches[0];
+    accDx += t.clientX - lastX;
+    accDy += t.clientY - lastY;
+    lastX = t.clientX; lastY = t.clientY;
+    scheduleMove();
+    return;
+  }
+
   if (e.touches.length >= 2) {
-    // 2本指 → スクロール（重心の移動量）
+    // 2本指 → スクロール（重心の移動量）。長押し判定は中止。
+    clearPressTimer();
     const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
     const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
     const dx = cx - scrollLastX;
@@ -96,6 +128,8 @@ trackpad.addEventListener('touchmove', (e) => {
   } else {
     // 1本指 → カーソル移動（差分を貯めて rAF で間引き送信）
     const t = e.touches[0];
+    // 一定以上動いたら「長押し」ではなく通常移動とみなしてタイマー中止
+    if (Math.hypot(t.clientX - startX, t.clientY - startY) > MOVE_CANCEL_PX) clearPressTimer();
     accDx += t.clientX - lastX;
     accDy += t.clientY - lastY;
     lastX = t.clientX; lastY = t.clientY;
@@ -105,6 +139,18 @@ trackpad.addEventListener('touchmove', (e) => {
 
 trackpad.addEventListener('touchend', (e) => {
   e.preventDefault();
+  clearPressTimer();
+
+  if (isDragging) {
+    // ドラッグ中に全部の指が離れたらボタンを離す（ドロップ）
+    if (e.touches.length === 0) {
+      send({ type: 'up' });
+      isDragging = false;
+      trackpad.classList.remove('dragging');
+    }
+    return; // ドラッグ後はクリック扱いにしない
+  }
+
   // 短時間・ほぼ動かさずに離した = タップ = クリック
   const elapsed = Date.now() - startTime;
   const dist = Math.hypot(lastX - startX, lastY - startY);
@@ -155,4 +201,26 @@ const kbDisplay = document.getElementById('kb-display');
 function appendDisplay(s) {
   // 直近に送った内容を確認用に表示（末尾60文字まで）
   kbDisplay.textContent = (kbDisplay.textContent + s).slice(-60);
+}
+
+// ===== カーソル感度（DPI）スライダー =====
+const sensSlider = document.getElementById('sens-slider');
+const sensValue = document.getElementById('sens-value');
+
+function sendSensitivity() {
+  // 接続時・変更時に現在の感度を PC に送る
+  if (sensSlider) send({ type: 'sensitivity', value: Number(sensSlider.value) });
+}
+
+if (sensSlider) {
+  // 前回値を復元（localStorage）
+  const saved = localStorage.getItem('sensitivity');
+  if (saved !== null) sensSlider.value = saved;
+  sensValue.textContent = Number(sensSlider.value).toFixed(1);
+
+  sensSlider.addEventListener('input', () => {
+    sensValue.textContent = Number(sensSlider.value).toFixed(1);
+    localStorage.setItem('sensitivity', sensSlider.value);
+    sendSensitivity();
+  });
 }

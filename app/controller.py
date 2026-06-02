@@ -1,28 +1,43 @@
 """マウス・キーボードを実際に操作するモジュール（pynput ラッパー）。
 
-スマホから届いた JSON メッセージ（dict）を受け取り、その内容に応じて
-PC のマウス／キーボードを動かす。WebSocket サーバー(server.py)から呼ばれる。
+スマホから届いた JSON メッセージ（dict）に従って PC のマウス／キーボードを動かす。
+WebSocket サーバー(server.py)から呼ばれる。
+
+pynput は「最初に操作が来たとき」に遅延 import する。こうすると、
+モジュールを import しただけ（サーバー起動だけ）では pynput/Quartz を初期化せず、
+GUI セッションでない環境での import ハングを避けられる。
 """
 
-from pynput.mouse import Controller as MouseController, Button
-from pynput.keyboard import Controller as KeyboardController, Key
-
 # マウス感度。スマホでの指の移動量(px)に掛けて、カーソルの移動量にする。
-# 大きくすると少しの指の動きで大きくカーソルが動く。
 SENSITIVITY: float = 1.5
 
-# Controller はプロセスで1つ作れば良いので、モジュールレベルで生成する。
-_mouse = MouseController()
-_keyboard = KeyboardController()
+# pynput 関連は初回に遅延ロードする（下記 _ensure 参照）
+_mouse = None
+_keyboard = None
+_Button = None
+_Key = None
+_KEY_MAP = None
 
-# 特殊キー名（スマホから来る文字列）→ pynput の Key へのマッピング
-_KEY_MAP = {
-    "enter": Key.enter,
-    "backspace": Key.backspace,
-    "space": Key.space,
-    "tab": Key.tab,
-    "esc": Key.esc,
-}
+
+def _ensure():
+    """pynput を初回だけ読み込み、Controller と各種定数を用意する。"""
+    global _mouse, _keyboard, _Button, _Key, _KEY_MAP
+    if _mouse is not None:
+        return
+    from pynput.mouse import Controller as MouseController, Button
+    from pynput.keyboard import Controller as KeyboardController, Key
+
+    _mouse = MouseController()
+    _keyboard = KeyboardController()
+    _Button = Button
+    _Key = Key
+    _KEY_MAP = {
+        "enter": Key.enter,
+        "backspace": Key.backspace,
+        "space": Key.space,
+        "tab": Key.tab,
+        "esc": Key.esc,
+    }
 
 
 def handle_message(msg: dict) -> None:
@@ -30,17 +45,24 @@ def handle_message(msg: dict) -> None:
 
     どんな入力が来てもサーバーを落とさないよう、例外は握りつぶして警告のみ出す。
     """
+    global SENSITIVITY
     try:
+        _ensure()
         mtype = msg.get("type")
 
+        if mtype == "sensitivity":
+            # スマホのスライダーからカーソル感度を変更する。極端な値は安全側にクランプ。
+            v = float(msg.get("value", SENSITIVITY))
+            SENSITIVITY = max(0.1, min(5.0, v))
+            return
+
         if mtype == "move":
-            # 相対移動（現在位置からの差分だけ動かす）
             dx = int(float(msg.get("dx", 0)) * SENSITIVITY)
             dy = int(float(msg.get("dy", 0)) * SENSITIVITY)
-            _mouse.move(dx, dy)
+            _mouse.move(dx, dy)  # 相対移動
 
         elif mtype == "click":
-            button = Button.left if msg.get("button") == "left" else Button.right
+            button = _Button.left if msg.get("button") == "left" else _Button.right
             count = 2 if msg.get("double") else 1
             _mouse.click(button, count)
 
@@ -48,10 +70,10 @@ def handle_message(msg: dict) -> None:
             _mouse.scroll(float(msg.get("dx", 0)), float(msg.get("dy", 0)))
 
         elif mtype == "down":
-            _mouse.press(Button.left)
+            _mouse.press(_Button.left)
 
         elif mtype == "up":
-            _mouse.release(Button.left)
+            _mouse.release(_Button.left)
 
         elif mtype == "text":
             _keyboard.type(str(msg.get("text", "")))
@@ -61,8 +83,7 @@ def handle_message(msg: dict) -> None:
             if k is not None:
                 _keyboard.press(k)
                 _keyboard.release(k)
-        # 未知の type は何もしない（無視）
+        # 未知の type は無視
 
     except Exception as e:
-        # 1件のエラーでサーバー全体を止めない
         print("[controller] メッセージ処理でエラー（無視して継続）:", e)

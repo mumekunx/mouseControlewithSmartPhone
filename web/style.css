@@ -55,6 +55,24 @@ body {
   line-height: 1.7;
   padding: 0 12px;
 }
+/* ドラッグ中（長押しでつかんだ状態）の視覚フィードバック */
+#trackpad.dragging {
+  border-color: #4a6cf7;
+  border-style: solid;
+  background: #eef1fe;
+}
+
+/* カーソル感度スライダー */
+.sensitivity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px;
+  font-size: 14px;
+  color: #555;
+}
+.sensitivity-row input[type=range] { flex: 1; }
+#sens-value { width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ボタン類：指で押しやすい大きさ */
 button {

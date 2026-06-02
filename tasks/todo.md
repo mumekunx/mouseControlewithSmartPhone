@@ -36,6 +36,27 @@
 - [x] README.md 更新
 - [x] update.md 進捗・完了マーク
 
+## 次フェーズ（v2 候補）— 2026-06-02 立案
+### (1) ドラッグ&ドロップ（クリック長押し）
+- [x] `web/app.js`: touchstart 長押し（450ms 静止保持）でドラッグ開始判定 → `down` 送信
+- [x] 長押し中の移動は `move`、touchend で `up` 送信（press/release は controller に既存）
+- [x] 長押し開始フィードバック（バイブ navigator.vibrate / 視覚変化 `.dragging`）
+- [ ] 実機確認（ファイル/選択範囲のドラッグ） ← ユーザー環境で
+
+### (2) DPI / カーソル感度の変更
+- [x] `web/index.html`: 感度スライダー（0.5〜3.0）追加
+- [x] `web/app.js`: 変更を `{type:"sensitivity", value}` で送信＋localStorage保存
+- [x] `app/controller.py`: `SENSITIVITY` を可変化、`sensitivity` type ハンドラ追加（0.1〜5.0クランプ）
+- [ ] 実機確認（感度の効き） ← ユーザー環境で
+
+### (3) 入力欄テキストの読み取り→スマホで編集
+- [ ] 技術調査: macOS AX API（AXFocusedUIElement→AXValue）/ Windows UI Automation でフォーカス要素のテキスト取得PoC
+- [ ] 新規 `app/textfield.py`: OS別の「フォーカス入力欄のテキスト取得」
+- [ ] 往復メッセージ: スマホ「編集モード」要求 → `{type:"fieldtext", text}` で返信
+- [ ] `web/`: 取得テキストを編集するUI、確定で置換（全選択→削除→type、または差分）
+- [ ] 取得失敗時フォールバック（従来の追記入力に戻す）
+- [ ] ※難易度高・権限/対応OS課題あり。単独 feature ブランチで進める
+
 ## 今後の課題（v1 スコープ外）
 - [ ] コード署名・公証（Gatekeeper / SmartScreen 警告の解消）
 - [ ] 簡易認証（PIN/トークン）

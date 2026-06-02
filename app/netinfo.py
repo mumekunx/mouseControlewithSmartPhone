@@ -5,13 +5,31 @@ PC の LAN 内 IP アドレスを調べ、スマホがアクセスする URL を
 """
 
 import ipaddress
+import os
+import shutil
 import socket
+import subprocess
 
 import qrcode
 
 # VPN / トンネル / 特殊インターフェースの名前の接頭辞。
 # これらはスマホから届かないので LAN IP の候補から除外する。
 _SKIP_PREFIXES = ("lo", "utun", "tun", "tap", "ppp", "awdl", "llw", "bridge", "gif", "stf")
+
+# Tailscale が端末に割り当てる IP の範囲（CGNAT 帯 100.64.0.0/10）。
+_TAILSCALE_NET = ipaddress.ip_network("100.64.0.0/10")
+
+# tailscale コマンドのよくある場所（CLIから確実に IP を取る用）。
+_TAILSCALE_BINS = (
+    "tailscale",
+    "/usr/local/bin/tailscale",
+    "/opt/homebrew/bin/tailscale",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    r"C:\Program Files\Tailscale\tailscale.exe",
+)
+
+# Tailscale IP は起動中ほぼ変わらないので一度だけ調べてキャッシュする。
+_ts_ip_cache = "__unset__"
 
 
 def _candidates_via_psutil():
@@ -79,9 +97,69 @@ def get_lan_ip() -> str:
     return _default_route_ip() or "127.0.0.1"
 
 
+def get_tailscale_ip():
+    """Tailscale が割り当てた自分の IP(100.x) を返す。無ければ None。
+
+    Tailscale を入れて両端末を同じアカウントに繋ぐと、回線の種類や
+    クライアント分離に関係なく、この 100.x 同士で通信できる。
+    """
+    global _ts_ip_cache
+    if _ts_ip_cache != "__unset__":
+        return _ts_ip_cache
+
+    result = None
+    # 1) tailscale CLI から取る（最も確実）
+    for b in _TAILSCALE_BINS:
+        path = shutil.which(b) or (b if os.path.exists(b) else None)
+        if not path:
+            continue
+        try:
+            out = subprocess.run([path, "ip", "-4"], capture_output=True, text=True, timeout=2)
+            lines = [l.strip() for l in out.stdout.splitlines() if l.strip()]
+            if lines and ipaddress.ip_address(lines[0]) in _TAILSCALE_NET:
+                result = lines[0]
+                break
+        except Exception:
+            continue
+
+    # 2) CLI が無い場合、インターフェースから 100.64.0.0/10 を探す（utun も対象）
+    if result is None:
+        try:
+            import psutil
+            for _, addrs in psutil.net_if_addrs().items():
+                for a in addrs:
+                    if a.family == socket.AF_INET and a.address:
+                        try:
+                            if ipaddress.ip_address(a.address) in _TAILSCALE_NET:
+                                result = a.address
+                                break
+                        except ValueError:
+                            pass
+                if result:
+                    break
+        except Exception:
+            pass
+
+    _ts_ip_cache = result
+    return result
+
+
+def candidate_urls(port: int = 8000):
+    """接続候補 URL を「届きやすい順」で返す。Tailscale があれば先頭。"""
+    urls = []
+    ts = get_tailscale_ip()
+    if ts:
+        urls.append(f"http://{ts}:{port}")
+    for ip in list_lan_ips():
+        u = f"http://{ip}:{port}"
+        if u not in urls:
+            urls.append(u)
+    return urls
+
+
 def build_url(port: int = 8000) -> str:
-    """スマホでアクセスする URL（例: http://192.168.0.5:8000）を組み立てる。"""
-    return f"http://{get_lan_ip()}:{port}"
+    """スマホでアクセスする主 URL。Tailscale があればそれ、無ければ LAN。"""
+    return candidate_urls(port)[0]
 
 
 def make_qr_image(url: str):
