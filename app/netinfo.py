@@ -9,6 +9,7 @@ import os
 import shutil
 import socket
 import subprocess
+import threading
 
 import qrcode
 
@@ -142,6 +143,22 @@ def get_tailscale_ip():
 
     _ts_ip_cache = result
     return result
+
+
+def tailscale_ip_cached():
+    """Tailscale IP のキャッシュ値を「ブロックせずに」返す。
+
+    まだ検出が終わっていなければ None を返す（検出は走らせない）。起動時に
+    `get_tailscale_ip()` を同期で呼ぶと最大数秒固まるため、UI からはこちらを使う。
+    """
+    return None if _ts_ip_cache == "__unset__" else _ts_ip_cache
+
+
+def prime_tailscale_ip():
+    """Tailscale 検出をバックグラウンドで走らせ、キャッシュを温める（即 return）。"""
+    if _ts_ip_cache != "__unset__":
+        return  # 既に検出済み
+    threading.Thread(target=get_tailscale_ip, daemon=True).start()
 
 
 def candidate_urls(port: int = 8000):

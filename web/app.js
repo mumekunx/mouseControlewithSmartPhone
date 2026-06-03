@@ -1,12 +1,27 @@
 // スマホ側のロジック：WebSocket 接続・トラックパッド操作・キーボード入力
 
-// ===== WebSocket 接続（自動再接続つき）=====
+// ===== WebSocket 接続（ペアリングトークン必須・自動再接続つき）=====
 let ws = null;
 
+// QR/URL に含まれる接続キー（?token=...）。これが無いと操作できない。
+const TOKEN = new URLSearchParams(location.search).get('token');
+
+function setStatusText(s) {
+  document.querySelectorAll('.status-text').forEach(t => { t.textContent = s; });
+}
+
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  if (!TOKEN) return; // トークンが無ければ接続しない
+  ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(TOKEN)}`);
   ws.onopen = () => { setConnected(true); sendSensitivity(); }; // 接続できたら現在の感度をPCに同期
-  ws.onclose = () => { setConnected(false); setTimeout(connect, 2000); }; // 2秒後に再接続
+  ws.onclose = (e) => {
+    setConnected(false);
+    if (e.code === 1008) { // トークン不正：再接続しても無駄なので止める
+      setStatusText('接続キーが無効です（PCのQRから開き直してください）');
+      return;
+    }
+    setTimeout(connect, 2000); // それ以外は2秒後に再接続
+  };
   ws.onerror = () => { try { ws.close(); } catch (e) {} };
 }
 
@@ -18,10 +33,15 @@ function send(obj) {
 
 function setConnected(ok) {
   document.querySelectorAll('.status-dot').forEach(d => d.classList.toggle('connected', ok));
-  document.querySelectorAll('.status-text').forEach(t => { t.textContent = ok ? '接続中' : '再接続中…'; });
+  setStatusText(ok ? '接続中' : '再接続中…');
 }
 
-connect();
+if (TOKEN) {
+  connect();
+} else {
+  // QR を使わず直接開いた等。操作できないことを UI で知らせる。
+  setStatusText('接続キーがありません（PCに表示された QR から開いてください）');
+}
 
 // ===== 画面（モード）切替 =====
 const screenControl = document.getElementById('screen-control');

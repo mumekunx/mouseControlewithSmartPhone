@@ -11,6 +11,7 @@
 
 import io
 import os
+import secrets
 import sys
 import threading
 
@@ -23,6 +24,20 @@ from app import controller, netinfo
 # 接続状態が変わったときに呼ぶコールバック（任意）。
 _on_status_change = None
 _port = 8000
+
+# 起動ごとに生成するペアリング用トークン。スマホからの操作(/ws)に必須。
+# このトークンを含む URL（QR）からつないだ端末だけがマウス/キーを操作できる。
+_token = secrets.token_urlsafe(16)
+
+
+def _with_token(url: str) -> str:
+    """接続 URL にトークンを付ける（スマホが ?token=... で開く）。
+
+    netinfo の URL は `http://host:port`（パス無し）なので、QR リーダー互換のため
+    `/` を補って `http://host:port/?token=...` の形にする。
+    """
+    sep = "" if url.endswith("/") else "/"
+    return f"{url}{sep}?token={_token}"
 
 
 def resource_path(relative: str) -> str:
@@ -43,15 +58,15 @@ app = FastAPI()
 
 @app.get("/info")
 def info():
-    """スマホがアクセスする URL を返す（PC のホストページが表示に使う）。"""
-    urls = netinfo.candidate_urls(_port)
-    return JSONResponse({"url": urls[0], "urls": urls, "tailscale": netinfo.get_tailscale_ip()})
+    """スマホがアクセスする URL（トークン付き）を返す（PC のホストページが表示に使う）。"""
+    urls = [_with_token(u) for u in netinfo.candidate_urls(_port)]
+    return JSONResponse({"url": urls[0], "urls": urls, "tailscale": netinfo.tailscale_ip_cached()})
 
 
 @app.get("/qr.png")
 def qr_png():
-    """接続 URL の QR コードを PNG 画像で返す。"""
-    img = netinfo.make_qr_image(netinfo.build_url(_port))
+    """接続 URL（トークン付き）の QR コードを PNG 画像で返す。"""
+    img = netinfo.make_qr_image(_with_token(netinfo.build_url(_port)))
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return Response(content=buf.getvalue(), media_type="image/png")
@@ -59,8 +74,13 @@ def qr_png():
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
-    """スマホからの操作メッセージを受け取り続ける。"""
+    """スマホからの操作メッセージを受け取り続ける。トークンが正しい接続のみ操作可。"""
     await ws.accept()
+    # ペアリング検証：正しいトークンが無ければ操作させずに切断（handle_message に到達しない）。
+    token = ws.query_params.get("token", "")
+    if not token or not secrets.compare_digest(token, _token):
+        await ws.close(code=1008)  # 1008 = Policy Violation
+        return
     if _on_status_change:
         _on_status_change(True)
     try:

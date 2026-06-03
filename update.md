@@ -11,7 +11,7 @@
   - host.html: 接続キーを含むQRである旨の控えめな注意を1行追加（表示URLは自動でtoken付きになる）。
 - **ブランチ**: `feature/20260603-1202-pairing-token`（`feature/20260602-1600-live-ime` から分岐＝直前までの作業を含む）。
 - **検証方針**: py_compile / node --check。ライブ検証は uvicorn をスレッド起動し urllib+websockets で「token無し/不正のWSは拒否(1008)」「token付き /info・/qr.png が200でURLにtoken付与」「正token WSは accept(操作メッセージは送らずpynput非起動)」を確認。
-- **進捗**: 実装中。
+- **進捗 (12:1x)**: 実装完了。server.py(token生成・`_with_token`・/info・/qr.png・/ws検証), netinfo.py(`prime_tailscale_ip`/`tailscale_ip_cached`), main.py(prime＋疎通確認後ブラウザ起動＋トレイ非ブロック), app.js(token接続・エラーUI), host.html(注意文)。**ライブ検証 全PASS**: /info 200＋url にtoken（Tailscale IPで出た＝prime動作）, /qr.png 200 png, token無し/不正WS→closed 1008, 正token→OPEN維持(pynput非起動)。`_with_token` は `/?token=` でQRリーダー互換。detail.md/todo.md 更新済み。依存追加なし。**実機確認待ち**（QRから操作可・旧QR/直URLは不可・起動が固まらない）。
 
 ## 2026-06-02 16:19 — 実機テスト後の改良4件（IME二重入力/濁点バグ修正・感度UI・ピンチズーム）
 - **依頼**: iPhone Safari で実機テストした結果の改良点。

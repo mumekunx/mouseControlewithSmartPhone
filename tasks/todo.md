@@ -66,6 +66,15 @@
 - [x] 構文チェック・差分/セレクト生成の単体検証
 - [ ] 実機再確認（二重入力解消 / 濁点 / 感度ロール / ピンチズーム） ← ユーザー環境で
 
+## Codexレビュー対応（2026-06-03 / feature/20260603-1202-pairing-token）
+- [x] ペアリングトークン必須化（server: `_token`生成・`/info`/`/qr.png`にtoken付与・`/ws`で`compare_digest`検証→不正は`close(1008)`）
+- [x] スマホJS: `?token=`で接続、無し/不正はUIエラー・再接続停止
+- [x] Tailscale検出の非同期化（netinfo: `prime_tailscale_ip`/`tailscale_ip_cached`、main/serverで非ブロック参照）
+- [x] 疎通確認後にブラウザ起動（main: `urllib`で`/info`リトライ→200で開く）
+- [x] host.html: 接続キー共有注意を追加
+- [x] ライブ検証（token無し/不正WS→1008拒否・正token→OPEN維持・/info url にtoken・/qr.png 200）
+- [ ] 実機確認（QRから接続して操作可 / 直接URLや旧QRでは操作不可 / 起動が固まらない） ← ユーザー環境で
+
 ## 今後の課題（v1 スコープ外）
 - [ ] コード署名・公証（Gatekeeper / SmartScreen 警告の解消）
-- [ ] 簡易認証（PIN/トークン）
+- [x] ~~簡易認証（PIN/トークン）~~ → トークンペアリングで対応済み

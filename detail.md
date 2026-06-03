@@ -23,7 +23,9 @@
 - 役割: LAN IP の取得（VPN/トンネルを除外）、接続 URL の組み立て、QR コード画像/ASCII の生成。
 - 主要:
   - `get_lan_ip() -> str` … psutil で実インターフェースを列挙し、VPN/トンネル(`utun`等)を除外して 192.168→10→他 の順で LAN IP を選ぶ。psutil 無い時は default route IP にフォールバック。
-  - `get_tailscale_ip() -> str|None` … Tailscale の自分の IP(100.64.0.0/10)を返す。`tailscale ip -4`(複数パス候補)→ダメなら 100.x のインターフェース走査。結果はキャッシュ。クライアント分離や別回線でも通信したい時に使う。
+  - `get_tailscale_ip() -> str|None` … Tailscale の自分の IP(100.64.0.0/10)を返す。`tailscale ip -4`(複数パス候補)→ダメなら 100.x のインターフェース走査。結果はキャッシュ。**初回は最大数秒ブロックしうる**ので起動時は直接呼ばない。
+  - `tailscale_ip_cached() -> str|None` … キャッシュ値を**ブロックせず**返す（未検出なら None、検出は走らせない）。UI/トレイ判定用。
+  - `prime_tailscale_ip() -> None` … `get_tailscale_ip()` を daemon スレッドで走らせてキャッシュを温める（即 return）。起動時に呼ぶ。
   - `candidate_urls(port=8000) -> list[str]` … 接続候補 URL を届きやすい順（Tailscale→LAN）で返す。
   - `list_lan_ips() -> list[str]` … LAN 候補 IP の一覧。
   - `_candidates_via_psutil()` / `_default_route_ip()` … 内部ヘルパー。
@@ -34,16 +36,18 @@
 - 被参照: `app/main.py`, `app/server.py`(`/info`,`/qr.png`)。
 
 ## app/server.py
-- 役割: FastAPI サーバー。`web/` 配信（`/`）、WebSocket（`/ws`）、接続情報（`/info`）、QR画像（`/qr.png`）を提供し、受信を controller へ渡す。daemon スレッドで起動。
+- 役割: FastAPI サーバー。`web/` 配信（`/`）、WebSocket（`/ws`）、接続情報（`/info`）、QR画像（`/qr.png`）を提供し、受信を controller へ渡す。daemon スレッドで起動。**ペアリングトークンで `/ws` 操作を保護**。
 - 主要:
   - `app` … FastAPI インスタンス。
+  - `_token` … 起動ごとに `secrets.token_urlsafe(16)` で生成するペアリングトークン。`/ws` 操作に必須。
+  - `_with_token(url) -> str` … 接続 URL に `/?token=...` を付ける（QRリーダー互換でパス `/` も補う）。
   - `resource_path(relative) -> str` … PyInstaller(`sys._MEIPASS`)対応のパス解決。
-  - `info()` … `/info`。接続 URL を JSON（`url`, `urls`）で返す（PC のホストページ用）。
-  - `qr_png()` … `/qr.png`。接続 URL の QR を PNG で返す。
-  - `ws_endpoint(ws)` … `/ws` ハンドラ。接続/切断で `_on_status_change` を呼ぶ。
+  - `info()` … `/info`。**トークン付き**接続 URL を JSON（`url`, `urls`, `tailscale`=`netinfo.tailscale_ip_cached()`）で返す。
+  - `qr_png()` … `/qr.png`。**トークン付き**接続 URL の QR を PNG で返す。
+  - `ws_endpoint(ws)` … `/ws` ハンドラ。accept 後にクエリの `token` を `secrets.compare_digest` で検証し、不正/欠落なら `close(1008)` で切断（`handle_message` に到達しない）。正なら接続/切断で `_on_status_change` を呼ぶ。
   - `start_server_in_thread(port=8000, on_status_change=None)` … uvicorn を daemon スレッドで起動。
-- 依存: `fastapi`, `uvicorn`, `app.controller`, `app.netinfo`。
-- 被参照: `app/main.py`。
+- 依存: `secrets`, `fastapi`, `uvicorn`, `app.controller`, `app.netinfo`。
+- 被参照: `app/main.py`。`/info`・`/qr.png`・`host.html`（PCローカルの設定用）は無認証のまま。
 
 ## app/permissions.py
 - 役割: OS 別の権限判定（macOS=アクセシビリティ / Windows=不要）。
@@ -64,9 +68,9 @@
 - 備考: 旧 `app/window.py`(tkinter ウィンドウ) は廃止・削除。QR 表示は PC のブラウザ(`/host.html`)に移行。
 
 ## app/main.py
-- 役割: エントリーポイント。サーバー起動(daemon) → PC のブラウザで `/host.html` を自動オープン → pystray をメインスレッドで run（終了まで常駐）。tkinter 不使用。
-- 主要: `main()`。トレイ不可時は URL/ASCII QR 表示のヘッドレスにフォールバック。
-- 依存: `app.server`, `app.netinfo`, `app.permissions`, `app.tray`, `webbrowser`。
+- 役割: エントリーポイント。サーバー起動(daemon) → Tailscale検出をバックグラウンド開始 → **`/info` の疎通確認(リトライ)が取れてから** PC のブラウザで `/host.html` を自動オープン → pystray をメインスレッドで run（終了まで常駐）。tkinter 不使用。
+- 主要: `main()`。`_open_browser_when_ready()`（`urllib.request` で `/info` を最大~5秒リトライし200で開く）、起動時 `netinfo.prime_tailscale_ip()`、トレイの「Tailscale入手」判定は `netinfo.tailscale_ip_cached()`（非ブロック）。トレイ不可時は URL/ASCII QR のヘッドレスにフォールバック。
+- 依存: `app.server`, `app.netinfo`, `app.permissions`, `app.tray`, `webbrowser`, `urllib.request`。
 - 被参照: 実行起点（`python -m app.main` / PyInstaller のエントリ）。
 
 ## app/requirements.txt
@@ -79,7 +83,7 @@
 - 被参照: `app/server.py`（StaticFiles で配信）。
 
 ## web/host.html
-- 役割: **PC 側**のブラウザで自動的に開く接続案内ページ。大きな QR（`/qr.png`）＋接続 URL（`/info` から取得）＋権限注意を表示。スマホはこの QR を読む。
+- 役割: **PC 側**のブラウザで自動的に開く接続案内ページ。大きな QR（`/qr.png`）＋接続 URL（`/info` から取得、**トークン付き**）＋権限注意＋「接続キーを共有しない」注意を表示。スマホはこの QR を読む。
 - 依存: サーバーの `/qr.png`, `/info`。
 - 被参照: `app/main.py`（起動時に `webbrowser.open`）。
 
@@ -90,7 +94,7 @@
 ## web/app.js
 - 役割: WebSocket クライアント＋トラックパッド判定＋キーボード入力。
 - 主要:
-  - `connect()` / `send(obj)` / `setConnected(ok)` … WS 接続（自動再接続）と送信、接続表示更新。
+  - `connect()` / `send(obj)` / `setConnected(ok)` / `setStatusText(s)` … WS 接続と送信、接続表示更新。`location.search` の `token` を読み `ws://.../ws?token=...` で接続。token 無しは接続せずエラー表示、`close(1008)`(トークン不正)受信時は再接続せずエラー表示。
   - トラックパッド: touchstart/move/end で 1本指=move(rAF間引き) / タップ=click / 2本指=scroll または **ピンチ拡大縮小** / 2本指タップ=右クリック。
   - 長押しドラッグ: 1本指を `LONG_PRESS_MS`(450ms) ほぼ静止保持で `down` 送信＝つかむ→移動でドラッグ→touchend で `up`＝ドロップ。`clearPressTimer()`/`isDragging`/`#trackpad.dragging` で制御。`MOVE_CANCEL_PX` 以上動くか2本指で長押し判定を解除。
   - ピンチズーム: 2本指の指間距離の変化を貯め、`ZOOM_STEP_PX`(28px) ごとに `{type:'zoom', dir:'in'|'out'}` を送る。フレームごとに「距離変化 > 重心移動」ならピンチ(ズーム)、そうでなければスクロールに振り分け（パンとズームを両立）。
