@@ -1,5 +1,18 @@
 # 進捗ログ（新しいものが上）
 
+## 2026-06-03 12:02 — Codexレビュー対応: ペアリング(トークン)必須化・Tailscale検出の非同期化・疎通後ブラウザ起動
+- **依頼**: Codex のコードレビューを受けて3点。(1) WS操作にトークン(ペアリング)を必須化、(2) 起動時のTailscale検出をバックグラウンド化、(3) サーバー疎通確認後にブラウザを開く。対象: main.py / server.py / netinfo.py / app.js / host.html。依存追加なし・既存挙動維持。
+- **妥当性**: いずれも現状の実弱点に対応＝妥当。現状は無認証で誰でも `/ws` に繋げば操作でき(LAN/Tailscale内とはいえ危険)、起動時に `get_tailscale_ip()` を同期呼び(最大2sブロック)、ブラウザは固定 `sleep(1.0)` で起動(早すぎ/遅すぎ)。
+- **方針/影響範囲**:
+  - server.py: 起動時に `secrets.token_urlsafe(16)` でトークン生成・保持。`/info`・`/qr.png` の返すURLに `?token=` を付与。`/ws` は accept 後にクエリの token を `secrets.compare_digest` で検証し、不正/欠落なら `close(1008)` で即切断（`handle_message` に到達しない）。/info・/qr.png・host.html 自体（PCローカルの設定用）は従来通り無認証。
+  - netinfo.py: `prime_tailscale_ip()`（バックグラウンドで `get_tailscale_ip()` を実行しキャッシュ温め）と `tailscale_ip_cached()`（ブロックしないキャッシュ参照）を追加。
+  - main.py: 起動直後に `prime_tailscale_ip()`。ブラウザ起動を「`/info` への GET を `urllib.request` で短いsleep付きリトライ→成功時のみ host.html を開く」方式に変更。トレイの「Tailscale入手」判定は `tailscale_ip_cached()`（非ブロック）に変更。
+  - app.js: `location.search` から token を取得し `ws://.../ws?token=` で接続。token 無しは接続せずUIにエラー表示。`close(1008)` 受信時は再接続せずエラー表示。
+  - host.html: 接続キーを含むQRである旨の控えめな注意を1行追加（表示URLは自動でtoken付きになる）。
+- **ブランチ**: `feature/20260603-1202-pairing-token`（`feature/20260602-1600-live-ime` から分岐＝直前までの作業を含む）。
+- **検証方針**: py_compile / node --check。ライブ検証は uvicorn をスレッド起動し urllib+websockets で「token無し/不正のWSは拒否(1008)」「token付き /info・/qr.png が200でURLにtoken付与」「正token WSは accept(操作メッセージは送らずpynput非起動)」を確認。
+- **進捗**: 実装中。
+
 ## 2026-06-02 16:19 — 実機テスト後の改良4件（IME二重入力/濁点バグ修正・感度UI・ピンチズーム）
 - **依頼**: iPhone Safari で実機テストした結果の改良点。
   1. 同じ文字が2回連続で入る場合がある（IME二重入力バグ）
