@@ -1,5 +1,14 @@
 # 進捗ログ（新しいものが上）
 
+## 2026-06-03 16:55 — Codexレビュー追加対応: /info・/qr.png をローカル限定 + touchcancelでドラッグ解除
+- **依頼**: 今セッションで Documents側(古い6db38bc)を本番と誤認して重複実装した中から、dev(本番)に未反映の2点だけ取り込む。
+  - **(#1)** `/info`・`/qr.png` が LAN 上の誰にでもトークン付き URL/QR を返す＝トークン漏洩で認可バイパス。スマホはこの2つを使わない（QR内token＋index.html/app.jsのみ）ので、両エンドポイントをループバック(127.0.0.1/::1)限定にする。
+  - **(#4)** `touchcancel` 未処理で OS のタッチキャンセル時にドラッグ(左押下)が残る → `touchcancel` で `up` 送信＋状態リセット。
+- **背景**: dev が本番で大幅に先行。トークン必須化・`compare_digest`・Tailscale非同期(`tailscale_ip_cached`)・疎通確認は既に dev に存在（重複）。未反映は #1/#4 のみ。
+- **影響**: `app/server.py`(`_is_local`追加, `info`/`qr_png`をローカル限定), `web/app.js`(touchcancel)。依存追加なし。
+- **ブランチ**: `feature/20260603-1655-loopback-touchcancel`（main から分岐）。
+- **進捗 — 完了**: server.py に `_is_local()`＋`/info`・`/qr.png` を非ローカル403に、app.js に `touchcancel` ハンドラ追加。検証: py_compile / `node --check` OK。detail.md 更新。**main へのマージはユーザーがPRレビュー後に。実機確認はユーザー環境で**。
+
 ## 2026-06-03 13:25 — DPI(感度)上限を3.0→10.0に拡大
 - **依頼**: カーソル感度の倍率を最大10倍まで選べるように。
 - **方針**: `web/app.js` の感度セレクト生成を 0.5〜10.0 に拡大。0.5〜3.0は0.1刻み(細かい操作用)、3.0〜10.0は0.5刻み(ロールが長くなりすぎないように)。`app/controller.py` のクランプ上限を 5.0→10.0 に。影響2ファイル＋detail.md。

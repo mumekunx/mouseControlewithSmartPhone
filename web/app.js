@@ -204,6 +204,16 @@ trackpad.addEventListener('touchend', (e) => {
   }
 }, { passive: false });
 
+// OS がタッチをキャンセル（着信・通知など）した場合：ドラッグ中なら必ずボタンを離す
+trackpad.addEventListener('touchcancel', () => {
+  clearPressTimer();
+  if (isDragging) {
+    send({ type: 'up' });
+    isDragging = false;
+    trackpad.classList.remove('dragging');
+  }
+}, { passive: false });
+
 // 既定のジェスチャ・コンテキストメニューを抑止
 trackpad.addEventListener('contextmenu', (e) => e.preventDefault());
 document.addEventListener('gesturestart', (e) => e.preventDefault());

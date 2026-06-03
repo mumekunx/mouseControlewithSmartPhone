@@ -15,11 +15,19 @@ import secrets
 import sys
 import threading
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app import controller, netinfo
+
+# /info と /qr.png はトークン付き URL/QR を返すため、PC 自身（ホストページ）以外には
+# 渡さない。LAN 上の第三者にトークンを採取されないよう、ループバックからのみ許可する。
+_LOOPBACK = {"127.0.0.1", "::1"}
+
+
+def _is_local(request: Request) -> bool:
+    return bool(request.client) and request.client.host in _LOOPBACK
 
 # 接続状態が変わったときに呼ぶコールバック（任意）。
 _on_status_change = None
@@ -57,15 +65,19 @@ app = FastAPI()
 
 
 @app.get("/info")
-def info():
-    """スマホがアクセスする URL（トークン付き）を返す（PC のホストページが表示に使う）。"""
+def info(request: Request):
+    """スマホがアクセスする URL（トークン付き）を返す。トークン漏洩防止のためローカル限定。"""
+    if not _is_local(request):
+        return Response(status_code=403)
     urls = [_with_token(u) for u in netinfo.candidate_urls(_port)]
     return JSONResponse({"url": urls[0], "urls": urls, "tailscale": netinfo.tailscale_ip_cached()})
 
 
 @app.get("/qr.png")
-def qr_png():
-    """接続 URL（トークン付き）の QR コードを PNG 画像で返す。"""
+def qr_png(request: Request):
+    """接続 URL（トークン付き）の QR コードを PNG 画像で返す。トークン漏洩防止のためローカル限定。"""
+    if not _is_local(request):
+        return Response(status_code=403)
     img = netinfo.make_qr_image(_with_token(netinfo.build_url(_port)))
     buf = io.BytesIO()
     img.save(buf, format="PNG")

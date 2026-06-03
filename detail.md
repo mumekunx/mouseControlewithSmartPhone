@@ -41,13 +41,14 @@
   - `app` … FastAPI インスタンス。
   - `_token` … 起動ごとに `secrets.token_urlsafe(16)` で生成するペアリングトークン。`/ws` 操作に必須。
   - `_with_token(url) -> str` … 接続 URL に `/?token=...` を付ける（QRリーダー互換でパス `/` も補う）。
+  - `_is_local(request) -> bool` … リクエスト元がループバック(127.0.0.1/::1)か判定。トークン漏洩防止用。
   - `resource_path(relative) -> str` … PyInstaller(`sys._MEIPASS`)対応のパス解決。
-  - `info()` … `/info`。**トークン付き**接続 URL を JSON（`url`, `urls`, `tailscale`=`netinfo.tailscale_ip_cached()`）で返す。
-  - `qr_png()` … `/qr.png`。**トークン付き**接続 URL の QR を PNG で返す。
+  - `info(request)` … `/info`。**ローカル限定**（非ローカルは403）。**トークン付き**接続 URL を JSON（`url`, `urls`, `tailscale`=`netinfo.tailscale_ip_cached()`）で返す。
+  - `qr_png(request)` … `/qr.png`。**ローカル限定**（非ローカルは403）。**トークン付き**接続 URL の QR を PNG で返す。
   - `ws_endpoint(ws)` … `/ws` ハンドラ。accept 後にクエリの `token` を `secrets.compare_digest` で検証し、不正/欠落なら `close(1008)` で切断（`handle_message` に到達しない）。正なら接続/切断で `_on_status_change` を呼ぶ。
   - `start_server_in_thread(port=8000, on_status_change=None)` … uvicorn を daemon スレッドで起動。
 - 依存: `secrets`, `fastapi`, `uvicorn`, `app.controller`, `app.netinfo`。
-- 被参照: `app/main.py`。`/info`・`/qr.png`・`host.html`（PCローカルの設定用）は無認証のまま。
+- 被参照: `app/main.py`。`/info`・`/qr.png` は**ローカル限定**(PCのhost.htmlが127.0.0.1から取得)。`host.html` 自体（静的配信）は無認証だがトークンは載らない。
 
 ## app/permissions.py
 - 役割: OS 別の権限判定（macOS=アクセシビリティ / Windows=不要）。
@@ -96,7 +97,7 @@
 - 主要:
   - `connect()` / `send(obj)` / `setConnected(ok)` / `setStatusText(s)` … WS 接続と送信、接続表示更新。`location.search` の `token` を読み `ws://.../ws?token=...` で接続。token 無しは接続せずエラー表示、`close(1008)`(トークン不正)受信時は再接続せずエラー表示。
   - トラックパッド: touchstart/move/end で 1本指=move(rAF間引き) / タップ=click / 2本指=scroll または **ピンチ拡大縮小** / 2本指タップ=右クリック。
-  - 長押しドラッグ: 1本指を `LONG_PRESS_MS`(450ms) ほぼ静止保持で `down` 送信＝つかむ→移動でドラッグ→touchend で `up`＝ドロップ。`clearPressTimer()`/`isDragging`/`#trackpad.dragging` で制御。`MOVE_CANCEL_PX` 以上動くか2本指で長押し判定を解除。
+  - 長押しドラッグ: 1本指を `LONG_PRESS_MS`(450ms) ほぼ静止保持で `down` 送信＝つかむ→移動でドラッグ→touchend で `up`＝ドロップ。`clearPressTimer()`/`isDragging`/`#trackpad.dragging` で制御。`MOVE_CANCEL_PX` 以上動くか2本指で長押し判定を解除。`touchcancel`(OSのタッチ中断)でもドラッグ中なら `up` を送って押下を残さない。
   - ピンチズーム: 2本指の指間距離の変化を貯め、`ZOOM_STEP_PX`(28px) ごとに `{type:'zoom', dir:'in'|'out'}` を送る。フレームごとに「距離変化 > 重心移動」ならピンチ(ズーム)、そうでなければスクロールに振り分け（パンとズームを両立）。
   - 感度セレクト: ステータスバー右端の `#sens-select`(0.5〜10.0、0.5〜3.0は0.1刻み/3.0〜10.0は0.5刻みをJS生成)。`change` で `{type:'sensitivity'}` 送信＋localStorage保存、接続時(`sendSensitivity()`)に再同期。iOS Safari ではロール(ホイール)選択になる。
   - キーボード（入力欄の実値をライブミラー）: `kbInput` の**実際の値**を唯一の正とし、`input` イベントごとに `syncFromInput()` が前回反映済み `mirroredCP`（コードポイント配列）との前方一致差分 `{type:'compose', back, add}` を送る。値が同じなら差分ゼロ＝**二重送信が起きない（冪等）**。日本語の変換中・濁点・削除・英数を1経路で処理し、iOSの composition/keydown 二重発火やクリア由来バグを根本回避。特殊キー(Enter/Backspace空時/Tab/Esc)のみ `keydown`(変換中は `e.isComposing` で除外)。Enter/画面切替で `resetMirror()`。
