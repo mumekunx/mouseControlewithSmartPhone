@@ -13,7 +13,7 @@
 ## app/controller.py
 - 役割: スマホから来た JSON メッセージに従って、実際に PC のマウス／キーボードを操作する（pynput ラッパー）。
 - 主要:
-  - `SENSITIVITY: float = 1.5` … マウス感度。`sensitivity` メッセージで実行時に変更（0.1〜5.0にクランプ）。
+  - `SENSITIVITY: float = 1.5` … マウス感度。`sensitivity` メッセージで実行時に変更（0.1〜10.0にクランプ）。
   - `_ensure()` … pynput を**初回操作時に遅延 import** して Controller を用意（import 時の Quartz 初期化＝起動ハングを回避）。
   - `handle_message(msg: dict) -> None` … `type`（move/click/scroll/down/up/text/key/**sensitivity**/**compose**/**zoom**）で分岐。`sensitivity` は感度を更新して即return（pynput不要）。`down`/`up` は左ボタンの押下/解放＝長押しドラッグに使用。`compose` は文字入力のライブ反映用で、`back`回 backspace してから `add` を `type`（前方一致差分。スマホ側が差分を計算して送る＝ここはステートレス）。`zoom` は `_ZOOM_MOD`(mac=Cmd/他=Ctrl) を押しながら `=`(in)/`-`(out)＝拡大縮小。例外は握りつぶす。
 - 依存: `pynput`（遅延 import）。
@@ -98,7 +98,7 @@
   - トラックパッド: touchstart/move/end で 1本指=move(rAF間引き) / タップ=click / 2本指=scroll または **ピンチ拡大縮小** / 2本指タップ=右クリック。
   - 長押しドラッグ: 1本指を `LONG_PRESS_MS`(450ms) ほぼ静止保持で `down` 送信＝つかむ→移動でドラッグ→touchend で `up`＝ドロップ。`clearPressTimer()`/`isDragging`/`#trackpad.dragging` で制御。`MOVE_CANCEL_PX` 以上動くか2本指で長押し判定を解除。
   - ピンチズーム: 2本指の指間距離の変化を貯め、`ZOOM_STEP_PX`(28px) ごとに `{type:'zoom', dir:'in'|'out'}` を送る。フレームごとに「距離変化 > 重心移動」ならピンチ(ズーム)、そうでなければスクロールに振り分け（パンとズームを両立）。
-  - 感度セレクト: ステータスバー右端の `#sens-select`(0.5〜3.0、0.1刻みをJS生成)。`change` で `{type:'sensitivity'}` 送信＋localStorage保存、接続時(`sendSensitivity()`)に再同期。iOS Safari ではロール(ホイール)選択になる。
+  - 感度セレクト: ステータスバー右端の `#sens-select`(0.5〜10.0、0.5〜3.0は0.1刻み/3.0〜10.0は0.5刻みをJS生成)。`change` で `{type:'sensitivity'}` 送信＋localStorage保存、接続時(`sendSensitivity()`)に再同期。iOS Safari ではロール(ホイール)選択になる。
   - キーボード（入力欄の実値をライブミラー）: `kbInput` の**実際の値**を唯一の正とし、`input` イベントごとに `syncFromInput()` が前回反映済み `mirroredCP`（コードポイント配列）との前方一致差分 `{type:'compose', back, add}` を送る。値が同じなら差分ゼロ＝**二重送信が起きない（冪等）**。日本語の変換中・濁点・削除・英数を1経路で処理し、iOSの composition/keydown 二重発火やクリア由来バグを根本回避。特殊キー(Enter/Backspace空時/Tab/Esc)のみ `keydown`(変換中は `e.isComposing` で除外)。Enter/画面切替で `resetMirror()`。
   - `appendDisplay(s)` … 送信内容の確認表示。
 - 依存: なし（素の JS）。被参照: `index.html`。

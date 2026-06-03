@@ -56,9 +56,9 @@ def handle_message(msg: dict) -> None:
         mtype = msg.get("type")
 
         if mtype == "sensitivity":
-            # スマホのスライダーからカーソル感度を変更する。極端な値は安全側にクランプ。
+            # スマホから来たカーソル感度。極端な値は安全側にクランプ（0.1〜10.0）。
             v = float(msg.get("value", SENSITIVITY))
-            SENSITIVITY = max(0.1, min(5.0, v))
+            SENSITIVITY = max(0.1, min(10.0, v))
             return
 
         if mtype == "move":

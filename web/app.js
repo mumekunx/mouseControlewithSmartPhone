@@ -280,14 +280,17 @@ function sendSensitivity() {
 }
 
 if (sensSelect) {
-  // 0.5〜3.0 を 0.1 刻みで選択肢生成（×0.5 …のように表示）
-  for (let v = 0.5; v <= 3.0001; v += 0.1) {
+  // 倍率の選択肢を生成（×0.5 …のように表示）。
+  // 0.5〜3.0 は 0.1 刻み（細かい操作用）、3.0〜10.0 は 0.5 刻み（ロールが長くなりすぎないように）。
+  const addOpt = (v) => {
     const val = v.toFixed(1);
     const opt = document.createElement('option');
     opt.value = val;
     opt.textContent = '×' + val;
     sensSelect.appendChild(opt);
-  }
+  };
+  for (let v = 0.5; v <= 3.0001; v += 0.1) addOpt(v);
+  for (let v = 3.5; v <= 10.0001; v += 0.5) addOpt(v);
   // 前回値を復元（localStorage）。無ければ既定 1.5。
   const saved = localStorage.getItem('sensitivity');
   sensSelect.value = (saved !== null && saved !== '') ? Number(saved).toFixed(1) : '1.5';
