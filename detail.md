@@ -109,4 +109,4 @@
 - 依存: PyInstaller（ビルド時）。被参照: ビルドコマンドから。
 
 ## ドキュメント
-- `aim.md` … 設計方針（唯一の正）。`README.md` … 起動/ビルド/権限手順。`teach.md` … 初学者向け解説。`update.md` … 進捗ログ。`tasks/todo.md` … タスク。
+- `aim.md` … 設計方針（唯一の正）。`README.md` … 冒頭に**PCが苦手な人向けのかんたん使い方ガイド**（起動→QR→指の使い方→Mac権限→困ったとき）、後半に開発者向け（ソース起動/ビルド/Tailscale/権限/構成）。`teach.md` … 初学者向け解説。`update.md` … 進捗ログ。`tasks/todo.md` … タスク。
