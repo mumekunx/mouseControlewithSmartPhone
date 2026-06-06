@@ -108,5 +108,16 @@
 - 役割: PyInstaller で `.app`(Mac) / `.exe`(Windows) を生成する設定。`web/` を `datas` で同梱、`hiddenimports` に pynput/pystray/uvicorn の OS 別バックエンド。
 - 依存: PyInstaller（ビルド時）。被参照: ビルドコマンドから。
 
+## .github/workflows/build.yml
+- 役割: GitHub Actions で macOS(.app) と Windows(.exe) のバイナリを自動ビルドし、タグ push 時に GitHub Release へ添付する CI ワークフロー。
+- 主要ジョブ:
+  - `build-macos` … `macos-latest`(arm64) で Python 3.12 + PyInstaller → `packaging/build_mac.spec` → `ditto` で zip 化 → artifact 保存。
+  - `build-windows` … `windows-latest` で Python 3.12 + PyInstaller → `packaging/build_win.spec` → artifact 保存。
+  - `release` … `needs: [build-macos, build-windows]`。`v*` タグ時のみ実行。両 artifact をダウンロードし `softprops/action-gh-release@v2` でリリースに添付。
+- トリガー: `workflow_dispatch`（手動）、`push: tags: v*`（タグ時）。
+- 依存しているファイル: `app/requirements.txt`, `packaging/build_mac.spec`, `packaging/build_win.spec`。
+- 注意: ビルド成果物は**未署名**（macOS Gatekeeper 警告 → 右クリック→「開く」で回避）。arm64 のみ（Intel/universal2 非対応）。
+- 被参照: GitHub Actions ランナーが直接読み込む。
+
 ## ドキュメント
 - `aim.md` … 設計方針（唯一の正）。`README.md` … 冒頭に**PCが苦手な人向けのかんたん使い方ガイド**（起動→QR→指の使い方→Mac権限→困ったとき）、後半に開発者向け（ソース起動/ビルド/Tailscale/権限/構成）。`teach.md` … 初学者向け解説。`update.md` … 進捗ログ。`tasks/todo.md` … タスク。

@@ -1,0 +1,115 @@
+# PhoneMouse 自動ビルドワークフロー
+# 注意: このビルドは「未署名」です。macOS では初回起動時に Gatekeeper の警告が出ます。
+# 回避方法: .app を右クリック →「開く」→「開く」をクリック（一度だけ）。
+
+name: Build PhoneMouse
+
+on:
+  # 手動実行
+  workflow_dispatch:
+  # v* タグを push したときに自動実行（例: git tag v1.0.0 && git push --tags）
+  push:
+    tags:
+      - 'v*'
+
+# タグ時のリリース作成に必要な書き込み権限
+permissions:
+  contents: write
+
+jobs:
+
+  # ── ジョブA: macOS 向け .app ビルド ──────────────────────────────────────
+  build-macos:
+    name: Build macOS (.app)
+    runs-on: macos-latest  # arm64 ランナー（Apple Silicon）
+
+    steps:
+      # リポジトリをチェックアウト
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      # Python をセットアップ
+      # ローカルは 3.14 だが、CI は wheel 入手性の高い 3.12 を使用
+      - name: Python 3.12 をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 依存パッケージと PyInstaller をインストール
+      - name: 依存パッケージをインストール
+        run: |
+          pip install --upgrade pip
+          pip install -r app/requirements.txt pyinstaller
+
+      # PyInstaller で .app をビルド（spec が dist/PhoneMouse.app を生成）
+      - name: PyInstaller でビルド
+        run: pyinstaller packaging/build_mac.spec
+
+      # .app はディレクトリなので ditto で zip 化（ファイル権限・シンボリックリンクを保持）
+      - name: .app を zip 化（ditto で権限保持）
+        run: ditto -c -k --keepParent dist/PhoneMouse.app dist/PhoneMouse-macos.zip
+
+      # zip をアーティファクトとしてアップロード
+      - name: アーティファクトをアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhoneMouse-macos
+          path: dist/PhoneMouse-macos.zip
+
+  # ── ジョブB: Windows 向け .exe ビルド ────────────────────────────────────
+  build-windows:
+    name: Build Windows (.exe)
+    runs-on: windows-latest
+
+    steps:
+      # リポジトリをチェックアウト
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      # Python をセットアップ
+      # ローカルは 3.14 だが、CI は wheel 入手性の高い 3.12 を使用
+      - name: Python 3.12 をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 依存パッケージと PyInstaller をインストール
+      - name: 依存パッケージをインストール
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements.txt pyinstaller
+
+      # PyInstaller で .exe をビルド（spec が dist/PhoneMouse.exe を生成）
+      - name: PyInstaller でビルド
+        run: pyinstaller packaging/build_win.spec
+
+      # .exe をアーティファクトとしてアップロード
+      - name: アーティファクトをアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhoneMouse-windows
+          path: dist/PhoneMouse.exe
+
+  # ── ジョブC: GitHub Release 作成（v* タグ時のみ）─────────────────────────
+  release:
+    name: GitHub Release を作成
+    needs: [build-macos, build-windows]
+    # v* タグ push 時のみ実行
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    steps:
+      # 両ジョブのアーティファクトをまとめてダウンロード
+      - name: アーティファクトをダウンロード
+        uses: actions/download-artifact@v4
+        with:
+          # path を指定することで artifacts/ 配下に各アーティファクトのディレクトリが作られる
+          path: artifacts/
+
+      # GitHub Release を作成してバイナリを添付
+      - name: GitHub Release を作成・バイナリを添付
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/PhoneMouse-macos/PhoneMouse-macos.zip
+            artifacts/PhoneMouse-windows/PhoneMouse.exe
