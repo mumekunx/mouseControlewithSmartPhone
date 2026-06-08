@@ -36,7 +36,7 @@
 - 被参照: `app/main.py`, `app/server.py`(`/info`,`/qr.png`)。
 
 ## app/server.py
-- 役割: FastAPI サーバー。`web/` 配信（`/`）、WebSocket（`/ws`）、接続情報（`/info`）、QR画像（`/qr.png`）を提供し、受信を controller へ渡す。daemon スレッドで起動。**ペアリングトークンで `/ws` 操作を保護**。
+- 役割: FastAPI サーバー。`web/` 配信（`/`）、WebSocket（`/ws`）、接続情報（`/info`）、QR画像（`/qr.png`）を提供し、受信を controller へ渡す。daemon スレッドで起動。**ペアリングトークンで `/ws` 操作を保護**。起動時に前回の自プロセスを終了して空きポートを確保する。
 - 主要:
   - `app` … FastAPI インスタンス。
   - `_token` … 起動ごとに `secrets.token_urlsafe(16)` で生成するペアリングトークン。`/ws` 操作に必須。
@@ -46,8 +46,10 @@
   - `info(request)` … `/info`。**ローカル限定**（非ローカルは403）。**トークン付き**接続 URL を JSON（`url`, `urls`, `tailscale`=`netinfo.tailscale_ip_cached()`）で返す。
   - `qr_png(request)` … `/qr.png`。**ローカル限定**（非ローカルは403）。**トークン付き**接続 URL の QR を PNG で返す。
   - `ws_endpoint(ws)` … `/ws` ハンドラ。accept 後にクエリの `token` を `secrets.compare_digest` で検証し、不正/欠落なら `close(1008)` で切断（`handle_message` に到達しない）。正なら接続/切断で `_on_status_change` を呼ぶ。
-  - `start_server_in_thread(port=8000, on_status_change=None)` … uvicorn を daemon スレッドで起動。
-- 依存: `secrets`, `fastapi`, `uvicorn`, `app.controller`, `app.netinfo`。
+  - `_terminate_stale_phonemouse(port) -> bool` … 指定ポートを LISTEN している PhoneMouse 自身の古いプロセスだけを terminate/kill。無関係プロセスは触らない。psutil 不使用/権限不足時は False を返す。
+  - `_find_free_port(preferred=8000, host="0.0.0.0", tries=20) -> int` … preferred から順に SO_REUSEADDR で bind を試み、最初に空いているポートを返す。全滅時は preferred を返す。
+  - `start_server_in_thread(port=8000, on_status_change=None) -> int` … 古い自プロセスを終了 → 空きポートを確保 → uvicorn を daemon スレッドで起動し、**実際に使うポート番号を返す**（旧: threading.Thread を返していた）。
+- 依存: `secrets`, `socket`, `fastapi`, `uvicorn`, `app.controller`, `app.netinfo`, `psutil`（遅延 import、`_terminate_stale_phonemouse` 内）。
 - 被参照: `app/main.py`。`/info`・`/qr.png` は**ローカル限定**(PCのhost.htmlが127.0.0.1から取得)。`host.html` 自体（静的配信）は無認証だがトークンは載らない。
 
 ## app/permissions.py
@@ -70,7 +72,7 @@
 
 ## app/main.py
 - 役割: エントリーポイント。サーバー起動(daemon) → Tailscale検出をバックグラウンド開始 → **`/info` の疎通確認(リトライ)が取れてから** PC のブラウザで `/host.html` を自動オープン → pystray をメインスレッドで run（終了まで常駐）。tkinter 不使用。
-- 主要: `main()`。`_open_browser_when_ready()`（`urllib.request` で `/info` を最大~5秒リトライし200で開く）、起動時 `netinfo.prime_tailscale_ip()`、トレイの「Tailscale入手」判定は `netinfo.tailscale_ip_cached()`（非ブロック）。トレイ不可時は URL/ASCII QR のヘッドレスにフォールバック。
+- 主要: `main()`。`server.start_server_in_thread(port=8000)` の**戻り値（実際のポート番号）を `port` に受け取り**、その後の URL 組み立て（`host_url`, `info_url`）・ブラウザ起動・ヘッドレスフォールバックに使用（ポートが8001等にフォールバックしても正しく動く）。`_open_browser_when_ready()`（`urllib.request` で `/info` を最大~5秒リトライし200で開く）、起動時 `netinfo.prime_tailscale_ip()`、トレイの「Tailscale入手」判定は `netinfo.tailscale_ip_cached()`（非ブロック）。トレイ不可時は URL/ASCII QR のヘッドレスにフォールバック。
 - 依存: `app.server`, `app.netinfo`, `app.permissions`, `app.tray`, `webbrowser`, `urllib.request`。
 - 被参照: 実行起点（`python -m app.main` / PyInstaller のエントリ）。
 

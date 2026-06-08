@@ -12,6 +12,7 @@
 import io
 import os
 import secrets
+import socket
 import sys
 import threading
 
@@ -112,10 +113,89 @@ async def ws_endpoint(ws: WebSocket):
 app.mount("/", StaticFiles(directory=resource_path("web"), html=True), name="web")
 
 
-def start_server_in_thread(port: int = 8000, on_status_change=None):
-    """uvicorn サーバーを daemon スレッドで起動し、すぐに return する。"""
+def _terminate_stale_phonemouse(port: int) -> bool:
+    """指定ポートを LISTEN している『PhoneMouse 自身の古いプロセス』だけを終了させる。
+
+    無関係なアプリは絶対に殺さない（プロセス名/コマンドラインで自分の仲間か判定）。
+    終了させたら True。psutil が無い/権限不足のときは何もせず False を返す。
+    """
+    try:
+        import psutil
+    except Exception:
+        return False
+    me = os.getpid()
+    victims = []
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            if proc.info["pid"] == me:
+                continue
+            name = (proc.info.get("name") or "").lower()
+            cmdline = " ".join(proc.info.get("cmdline") or []).lower()
+            # 開発起動(python -m app.main / app/main.py)とパッケージ版(PhoneMouse)の両対応
+            is_ours = (
+                "phonemouse" in name
+                or "app.main" in cmdline
+                or "app/main.py" in cmdline
+                or "app\\main.py" in cmdline
+            )
+            if not is_ours:
+                continue
+            # そのプロセスが対象ポートを LISTEN しているか
+            for c in proc.net_connections(kind="inet"):
+                if c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == port:
+                    victims.append(proc)
+                    break
+        except Exception:
+            continue
+    if not victims:
+        return False
+    for p in victims:
+        try:
+            p.terminate()
+        except Exception:
+            pass
+    gone, alive = psutil.wait_procs(victims, timeout=3)
+    for p in alive:  # terminate で死ななければ kill
+        try:
+            p.kill()
+        except Exception:
+            pass
+    return True
+
+
+def _find_free_port(preferred: int = 8000, host: str = "0.0.0.0", tries: int = 20) -> int:
+    """preferred から順に bind を試し、最初に空いているポートを返す。
+
+    SO_REUSEADDR を付けて TIME_WAIT 残りも再利用可能にする。
+    全滅したら preferred を返す（最後は uvicorn 側のエラーに委ねる）。
+    """
+    for p in range(preferred, preferred + tries):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((host, p))
+            return p
+        except OSError:
+            continue
+        finally:
+            s.close()
+    return preferred
+
+
+def start_server_in_thread(port: int = 8000, on_status_change=None) -> int:
+    """uvicorn サーバーを daemon スレッドで起動し、実際に使うポート番号を返す。
+
+    起動前に、前回残った PhoneMouse 自身を終了させ、空きポートを確保する。
+    """
     global _on_status_change, _port
     _on_status_change = on_status_change
+
+    # 前回の自分がポートを握っていたら終了させ、解放を少し待つ
+    if _terminate_stale_phonemouse(port):
+        import time
+        time.sleep(0.3)
+    # 基本は元のポート、ダメなら次の空きへ
+    port = _find_free_port(port)
     _port = port
 
     import uvicorn
@@ -124,4 +204,4 @@ def start_server_in_thread(port: int = 8000, on_status_change=None):
     server = uvicorn.Server(config)
     t = threading.Thread(target=server.run, daemon=True)
     t.start()
-    return t
+    return port
