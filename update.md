@@ -1,5 +1,18 @@
 # 進捗ログ（新しいものが上）
 
+## 2026-06-06 21:15 — GitHub Actions で Mac(.app)/Windows(.exe) 自動ビルド
+- **依頼**: GitHub Actions で macOS の .app と Windows の .exe を自動ビルドするワークフローを追加。
+- **立案**:
+  - Mac/Windows 両配布バイナリを CI で自動生成する仕組みが欲しい。
+  - `.github/workflows/build.yml` を新規作成。`workflow_dispatch`（手動）と `push: tags: v*`（タグ時）をトリガーとする。
+  - ジョブA `build-macos`（macos-latest/arm64）: Python 3.12 → requirements + pyinstaller install → `pyinstaller packaging/build_mac.spec` → `ditto` で権限保持 zip 化 → artifact 保存。
+  - ジョブB `build-windows`（windows-latest）: 同様に `pyinstaller packaging/build_win.spec` → artifact 保存。
+  - ジョブC `release`（needs 両ジョブ、タグ時のみ）: `download-artifact@v4` で両成果物を取得 → `softprops/action-gh-release@v2` でリリースに添付。
+  - 影響範囲: `.github/workflows/build.yml` 新規追加のみ。既存 spec/コードへの変更なし。
+- **完了**:
+  - `.github/workflows/build.yml` を作成。
+  - 残課題: ① ビルドは**未署名**（macOS 初回起動時 Gatekeeper 警告が出る、右クリック→「開く」で回避）。② arm64 のみ（Intel/universal2 対応は今回スコープ外）。③ Windows .exe も未署名（SmartScreen 警告の可能性あり）。実機起動確認はユーザー環境で実施。
+
 ## 2026-06-04 01:52 — README に「PCが苦手な人向け かんたん使い方ガイド」を追加
 - **依頼**: PCをあまり触ったことがない人でも使える説明書をREADMEに。
 - **方針**: README冒頭に初心者ガイドを主役として配置（用意するもの→起動→初回警告の回避→QR→スマホで読む→指の使い方早見表→Mac権限→困ったとき→終了）。専門用語を避け絵文字と表で平易に。既存の技術情報（ソースから起動・ビルド・Tailscale詳細・構成）は後半「作る人向け」へ整理。実装変更なし・ドキュメントのみ。
