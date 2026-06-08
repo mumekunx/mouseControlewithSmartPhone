@@ -21,12 +21,11 @@ from app import server, netinfo, permissions, tray
 
 
 def main():
-    port = 8000
+    # 1) サーバー起動（daemon スレッド）。前回のポートが残っていても
+    #    古い自分を終了 → 空きポートへ自動フォールバックし、実際のポートを受け取る。
+    port = server.start_server_in_thread(port=8000)
     host_url = f"http://127.0.0.1:{port}/host.html"
     info_url = f"http://127.0.0.1:{port}/info"
-
-    # 1) サーバー起動（daemon スレッド）
-    server.start_server_in_thread(port=port)
 
     # 1.5) Tailscale 検出はバックグラウンドで（同期で呼ぶと起動が固まるため）
     netinfo.prime_tailscale_ip()

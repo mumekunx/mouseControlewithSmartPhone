@@ -1,5 +1,15 @@
 # 進捗ログ（新しいものが上）
 
+## 2026-06-07 03:30 — 2回目以降の起動でポートが残る問題を修正
+
+- **依頼**: 2回目以降の起動で前回のポート(8000)が残っていて起動できない／つながらないバグを直す。
+- **方針**: 「古いのを終了 ＋ 空き探し」の合わせ技。起動時に (1) ポート8000を握っている PhoneMouse 自身の古いプロセスだけを安全に終了させて8000を再利用、(2) それでもダメなら 8001, 8002... と空きポートへ自動フォールバック。確保したポートを QR / ブラウザURL にも反映する。
+- **影響範囲**: `app/server.py`（ヘルパー2関数追加・`start_server_in_thread` 戻り値変更）、`app/main.py`（起動順序変更・ポートを戻り値から受け取る）。依存追加なし（psutil は既存）。
+- **進捗 — 完了**:
+  - `app/server.py`: `import socket` 追加。`_terminate_stale_phonemouse(port)` を追加（psutil でポートをLISTENしているPhoneMouse自身の古いプロセスを終了。無関係プロセスは触らない）。`_find_free_port(preferred, host, tries)` を追加（SO_REUSEADDR でbindを試みながら空きポートを探す）。`start_server_in_thread` が終了→空きポート確保→uvicorn起動して実際のポート番号を `int` で返すよう変更（旧: `threading.Thread` を返していた）。
+  - `app/main.py`: `main()` 冒頭で `server.start_server_in_thread(port=8000)` の戻り値を `port` に受け取り、それ以降の URL 組み立て (`host_url`, `info_url`) に使用。
+  - テスト: `py_compile` OK（構文エラーなし）。`~/.venvs/mousecontrol/bin/python -c "from app import server; print(server._find_free_port(8000)); print('stale:', server._terminate_stale_phonemouse(8000))"` → `8000` / `stale: False`（空きポート正常取得・該当プロセス無しで False・例外なし）。
+
 ## 2026-06-04 01:52 — README に「PCが苦手な人向け かんたん使い方ガイド」を追加
 - **依頼**: PCをあまり触ったことがない人でも使える説明書をREADMEに。
 - **方針**: README冒頭に初心者ガイドを主役として配置（用意するもの→起動→初回警告の回避→QR→スマホで読む→指の使い方早見表→Mac権限→困ったとき→終了）。専門用語を避け絵文字と表で平易に。既存の技術情報（ソースから起動・ビルド・Tailscale詳細・構成）は後半「作る人向け」へ整理。実装変更なし・ドキュメントのみ。
