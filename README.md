@@ -9,6 +9,18 @@
 
 ---
 
+## ⬇️ ダウンロード
+
+下のリンクから、お使いのパソコンに合うものをダウンロードしてください（最新版: v1.0.0）。
+
+- 🍎 **Mac（Apple Silicon / M1・M2・M3など）** … [PhoneMouse-macos.zip](https://github.com/mumekunx/mouseControlewithSmartPhone/releases/download/v1.0.0/PhoneMouse-macos.zip)（ダウンロード後、ダブルクリックで展開）
+- 🪟 **Windows** … [PhoneMouse.exe](https://github.com/mumekunx/mouseControlewithSmartPhone/releases/download/v1.0.0/PhoneMouse.exe)
+
+> いつでも最新版は [リリース一覧](https://github.com/mumekunx/mouseControlewithSmartPhone/releases/latest) から入手できます。
+> ⚠️ 初回起動時だけ「開けません」などの警告が出ます（このアプリはまだ署名されていないためで、こわれません）。回避方法は下の「はじめての方へ」の②に書いてあります。
+
+---
+
 ## 📱 はじめての方へ — かんたん使い方ガイド
 
 > パソコンが苦手でも大丈夫。順番にやれば使えます。
