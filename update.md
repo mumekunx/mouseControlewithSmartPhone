@@ -1,5 +1,20 @@
 # 進捗ログ（新しいものが上）
 
+## 2026-06-09 13:43 — ファイル依存＆動作フローのアニメ可視化HTMLを追加
+
+- **立案**: detail.md の内容（各ファイルの役割・主要メソッド・依存・被参照）を元に、ファイル依存グラフと起動〜スマホ操作のシーケンスをアニメーション付きで見られる単一HTMLファイルを作成する。外部CDN不使用・vanilla JS + インラインSVG + インラインCSSのみ。
+- **計画**:
+  - `docs/architecture.html` を新規作成（docs/ ディレクトリも新規）
+  - ノード20個 (py:6, web:5, ext:4, build:4, web_dir仮想:1)、リンク28本、flowSteps 9ステップ
+  - 自作 force simulation (requestAnimationFrame)、ドラッグ、ホバー/クリックインタラクション、粒子アニメ再生
+  - `detail.md` に `docs/architecture.html` のエントリを追加
+  - `update.md` 先頭に本エントリを追記
+- **影響範囲**: `docs/architecture.html`（新規）、`detail.md`（エントリ追加）、`update.md`（本エントリ）。
+- **完了**:
+  - `docs/architecture.html` 作成（43KB）。node --check / Python html.parser 両方 OK。
+  - `detail.md` に `## docs/architecture.html` エントリを追加。
+  - ブラウザでダブルクリック起動・オフライン完全動作（外部リソースなし）。
+
 ## 2026-06-09 12:34 — README のダウンロードリンクを v1.0.1 に更新
 
 - **立案**: ダウンロードセクションの直リンクが v1.0.0（windowed 起動クラッシュが残る版）を指していたため、修正済みの v1.0.1 へ差し替える。

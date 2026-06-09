@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhoneMouse — ファイル依存 &amp; 動作フロービュー</title>
+<style>
+/* ===== リセット &amp; 基底 ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0d1117; color: #c9d1d9; font-family: 'Helvetica Neue', Arial, 'Hiragino Kochi Go', 'Yu Gothic', sans-serif; font-size: 14px; }
+
+/* ===== レイアウト ===== */
+#app { display: flex; flex-direction: column; width: 100%; height: 100%; }
+#toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: #161b22; border-bottom: 1px solid #30363d; flex-shrink: 0; flex-wrap: wrap; }
+#main-area { display: flex; flex: 1; overflow: hidden; }
+#graph-container { flex: 1; position: relative; overflow: hidden; }
+svg#graph { width: 100%; height: 100%; display: block; }
+#side-panel { width: 280px; min-width: 220px; background: #161b22; border-left: 1px solid #30363d; overflow-y: auto; padding: 14px; flex-shrink: 0; transition: width 0.2s; }
+#status-bar { padding: 6px 14px; background: #161b22; border-top: 1px solid #30363d; font-size: 12px; color: #8b949e; min-height: 28px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ===== ツールバー ===== */
+#toolbar h1 { font-size: 14px; font-weight: 700; color: #58a6ff; margin-right: 4px; white-space: nowrap; }
+.tb-sep { width: 1px; height: 20px; background: #30363d; }
+.tb-btn { padding: 5px 12px; border: 1px solid #30363d; border-radius: 6px; background: #21262d; color: #c9d1d9; cursor: pointer; font-size: 13px; white-space: nowrap; }
+.tb-btn:hover { background: #30363d; }
+.tb-btn.active { background: #1f6feb; border-color: #388bfd; color: #fff; }
+#play-btn { min-width: 120px; }
+#speed-select { padding: 4px 8px; border: 1px solid #30363d; border-radius: 6px; background: #21262d; color: #c9d1d9; font-size: 13px; }
+#step-label { font-size: 12px; color: #8b949e; white-space: nowrap; }
+
+/* ===== 凡例 ===== */
+#legend { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.leg-item { display: flex; align-items: center; gap: 4px; }
+.leg-dot { width: 10px; height: 10px; border-radius: 50%; }
+.leg-line { width: 20px; height: 2px; }
+
+/* ===== SVGノード ===== */
+.node-circle { cursor: pointer; stroke-width: 2; transition: filter 0.15s; }
+.node-label { font-size: 11px; fill: #c9d1d9; pointer-events: none; text-anchor: middle; dominant-baseline: central; user-select: none; }
+.node-group.dimmed .node-circle { opacity: 0.2; }
+.node-group.dimmed .node-label { opacity: 0.2; }
+.node-group.highlight .node-circle { filter: drop-shadow(0 0 6px currentColor); }
+.node-group.playing .node-circle { animation: pulse 0.8s ease-in-out infinite alternate; }
+@keyframes pulse { from { filter: drop-shadow(0 0 4px #f0e040); } to { filter: drop-shadow(0 0 14px #f0e040) brightness(1.3); } }
+
+/* ===== SVGエッジ ===== */
+.edge { transition: opacity 0.15s; }
+.edge.dimmed { opacity: 0.06; }
+.edge.highlight { opacity: 1; }
+.edge.playing { opacity: 1; }
+
+/* ===== サイドパネル ===== */
+#side-panel h2 { font-size: 13px; font-weight: 700; color: #58a6ff; margin-bottom: 10px; border-bottom: 1px solid #30363d; padding-bottom: 6px; }
+#panel-content { font-size: 12px; line-height: 1.6; color: #8b949e; }
+#panel-content .panel-empty { font-style: italic; }
+#panel-content .section-title { color: #c9d1d9; font-weight: 700; margin-top: 10px; margin-bottom: 4px; }
+#panel-content .role-text { color: #c9d1d9; }
+#panel-content ul { padding-left: 14px; }
+#panel-content li { margin-bottom: 2px; }
+#panel-content .tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; margin: 2px 2px 2px 0; }
+.tag-py  { background: #1a3a5c; color: #79c0ff; }
+.tag-web { background: #2d3b2a; color: #7ee787; }
+.tag-ext { background: #3b2a2a; color: #f78166; }
+.tag-build { background: #3b3022; color: #e3b341; }
+.tag-doc { background: #2d2a3b; color: #bc8cff; }
+#panel-title { font-size: 14px; font-weight: 700; color: #e6edf3; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- ツールバー -->
+  <div id="toolbar">
+    <h1>PhoneMouse アーキテクチャ</h1>
+    <div class="tb-sep"></div>
+    <!-- 動作フロー再生コントロール -->
+    <button class="tb-btn" id="prev-btn" title="前のステップ">&#9664; 前へ</button>
+    <button class="tb-btn" id="play-btn">&#9654; 動作の流れを再生</button>
+    <button class="tb-btn" id="next-btn" title="次のステップ">次へ &#9654;</button>
+    <button class="tb-btn" id="stop-btn" title="停止してリセット">&#9632; 停止</button>
+    <select id="speed-select">
+      <option value="2">0.5x</option>
+      <option value="1" selected>1x</option>
+      <option value="0.5">2x</option>
+    </select>
+    <span id="step-label">ステップ: —</span>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="reset-layout-btn" title="レイアウトをリセット">&#8635; レイアウト</button>
+    <div class="tb-sep"></div>
+    <!-- 凡例 -->
+    <div id="legend">
+      <span style="color:#8b949e;font-size:12px">カテゴリ:</span>
+      <div class="leg-item"><div class="leg-dot" style="background:#4a9eff"></div><span>Python(PC)</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:#3fb950"></div><span>Web(スマホ)</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:#f78166"></div><span>外部ライブラリ</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:#e3b341"></div><span>ビルド/CI</span></div>
+      <span style="color:#8b949e;font-size:12px;margin-left:6px">エッジ:</span>
+      <div class="leg-item"><div class="leg-line" style="background:#4a9eff"></div><span>import</span></div>
+      <div class="leg-item"><div class="leg-line" style="background:#f78166"></div><span>外部</span></div>
+      <div class="leg-item"><div class="leg-line" style="background:#3fb950"></div><span>配信</span></div>
+      <div class="leg-item"><div class="leg-line" style="background:#e3b341;border-top:2px dashed #e3b341;height:0"></div><span>HTTP/WS</span></div>
+      <div class="leg-item"><div class="leg-line" style="background:#bc8cff"></div><span>web内参照</span></div>
+      <div class="leg-item"><div class="leg-line" style="background:#8b949e;border-top:2px dashed #8b949e;height:0"></div><span>ビルド</span></div>
+    </div>
+  </div>
+
+  <!-- メイン -->
+  <div id="main-area">
+    <!-- グラフ (SVG) -->
+    <div id="graph-container">
+      <svg id="graph">
+        <defs>
+          <!-- 矢印マーカー定義 (種別ごと) -->
+          <marker id="arrow-import" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#4a9eff"/>
+          </marker>
+          <marker id="arrow-ext" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#f78166"/>
+          </marker>
+          <marker id="arrow-serve" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#3fb950"/>
+          </marker>
+          <marker id="arrow-net" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#e3b341"/>
+          </marker>
+          <marker id="arrow-webref" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#bc8cff"/>
+          </marker>
+          <marker id="arrow-build" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#8b949e"/>
+          </marker>
+          <!-- ハイライト用マーカー -->
+          <marker id="arrow-playing" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#f0e040"/>
+          </marker>
+        </defs>
+        <!-- エッジ・ノードはJSで動的生成 -->
+        <g id="edges-layer"></g>
+        <g id="nodes-layer"></g>
+        <!-- 粒子アニメ用レイヤー -->
+        <g id="particles-layer"></g>
+      </svg>
+    </div>
+
+    <!-- サイドパネル -->
+    <div id="side-panel">
+      <h2>ファイル情報</h2>
+      <div id="panel-content">
+        <p class="panel-empty">ノードをクリックすると詳細を表示します。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ステータスバー (フロー説明) -->
+  <div id="status-bar">ノードをホバーでハイライト、クリックで詳細表示。「▶ 動作の流れを再生」で起動〜操作のシーケンスをアニメ再生。</div>
+</div>
+
+<script>
+// =============================================================================
+// データ定義 (detail.md の内容を埋め込み)
+// =============================================================================
+
+/** @type {Array<{id:string, label:string, category:string, role:string, methods:string[], deps:string[], referencedBy:string[]}>} */
+const NODES = [
+  // ---- Python (PC側 app/) ----
+  {
+    id: 'main',
+    label: 'main.py',
+    category: 'py',
+    role: 'エントリーポイント。サーバー起動(daemon) → Tailscale検出をBG開始 → /info 疎通確認後 PCブラウザで /host.html を自動オープン → pystray でメインスレッド常駐。tkinter不使用。',
+    methods: [
+      'main() — アプリ起動の主処理',
+      '_open_browser_when_ready() — /info をリトライし200で開く',
+      'sys.stdout/stderr の None ガード (PyInstaller windowed対策)',
+    ],
+    deps: ['server', 'netinfo', 'permissions', 'tray'],
+    referencedBy: [],
+  },
+  {
+    id: 'server',
+    label: 'server.py',
+    category: 'py',
+    role: 'FastAPI サーバー。web/ 配信(/)、WebSocket(/ws)、接続情報(/info)、QR画像(/qr.png) を提供。受信を controller へ渡す。daemon スレッドで起動。ペアリングトークンで /ws を保護。',
+    methods: [
+      'app — FastAPI インスタンス',
+      '_token — 起動ごとに生成するペアリングトークン',
+      '_with_token(url) — トークン付きURLを生成',
+      '_is_local(request) — ループバック判定',
+      'resource_path(relative) — PyInstaller対応パス解決',
+      'info(request) — /info エンドポイント (ローカル限定)',
+      'qr_png(request) — /qr.png エンドポイント (ローカル限定)',
+      'ws_endpoint(ws) — /ws WebSocket ハンドラ',
+      '_terminate_stale_phonemouse(port) — 古い自プロセスを終了',
+      '_find_free_port(preferred, host, tries) — 空きポート探索',
+      'start_server_in_thread(port, on_status_change) — daemon起動、実ポート番号を返す',
+    ],
+    deps: ['controller', 'netinfo', 'fastapi_uvicorn'],
+    referencedBy: ['main'],
+  },
+  {
+    id: 'controller',
+    label: 'controller.py',
+    category: 'py',
+    role: 'スマホから来たJSONメッセージに従って、実際にPCのマウス／キーボードを操作する(pynputラッパー)。',
+    methods: [
+      'SENSITIVITY: float = 1.5 — マウス感度(実行時変更可)',
+      '_ensure() — pynput を初回操作時に遅延import',
+      'handle_message(msg: dict) — type(move/click/scroll/down/up/text/key/sensitivity/compose/zoom)で分岐',
+    ],
+    deps: ['pynput'],
+    referencedBy: ['server'],
+  },
+  {
+    id: 'netinfo',
+    label: 'netinfo.py',
+    category: 'py',
+    role: 'LAN IP の取得(VPN/トンネルを除外)、接続URLの組み立て、QRコード画像/ASCIIの生成。',
+    methods: [
+      'get_lan_ip() — psutilでLAN IPを選択',
+      'get_tailscale_ip() — Tailscale IPを返す(最大数秒ブロック)',
+      'tailscale_ip_cached() — ブロックせずキャッシュ値を返す',
+      'prime_tailscale_ip() — daemon スレッドでキャッシュを温める',
+      'candidate_urls(port) — 接続候補URLをTailscale→LAN順で返す',
+      'build_url(port) — 主URL(Tailscale優先)',
+      'make_qr_image(url) — QR画像生成',
+      'print_ascii_qr(url) — ターミナルにQRを文字表示',
+    ],
+    deps: ['qrcode_psutil'],
+    referencedBy: ['main', 'server'],
+  },
+  {
+    id: 'tray',
+    label: 'tray.py',
+    category: 'py',
+    role: 'メニューバー(Mac)/タスクトレイ(Windows)常駐アイコン。終了・QR再表示の入口。',
+    methods: [
+      '_make_icon_image() — PILでアイコン画像生成',
+      'create_tray(on_open, on_quit, on_permission, on_get_tailscale) — トレイアイコンを生成',
+    ],
+    deps: ['pystray_pil'],
+    referencedBy: ['main'],
+  },
+  {
+    id: 'permissions',
+    label: 'permissions.py',
+    category: 'py',
+    role: 'OS別の権限判定(macOS=アクセシビリティ / Windows=不要)。',
+    methods: [
+      'is_trusted() — macOS は AXIsProcessTrusted()、他は常にTrue',
+      'needs_permission_ui() — macOSかつ未許可でTrue',
+      'open_accessibility_settings() — macOSのアクセシビリティ設定を開く',
+    ],
+    deps: [],
+    referencedBy: ['main'],
+  },
+
+  // ---- Web (スマホ側/PC案内 web/) ----
+  {
+    id: 'index_html',
+    label: 'index.html',
+    category: 'web',
+    role: 'スマホUI。操作モード(#screen-control)とキーボードモード(#screen-keyboard)の2画面。',
+    methods: [
+      '#trackpad — タッチ操作エリア',
+      '#btn-left / #btn-right — マウスボタン',
+      '#btn-open-keyboard — キーボードモードへ切替',
+      '#sens-select — 感度セレクト(JSで選択肢生成)',
+      '#kb-input / #kb-display — 入力欄と表示',
+    ],
+    deps: ['style_css', 'app_js'],
+    referencedBy: ['server'],
+  },
+  {
+    id: 'host_html',
+    label: 'host.html',
+    category: 'web',
+    role: 'PCブラウザで自動的に開く接続案内ページ。大きなQR(/qr.png)+接続URL(/infoから取得、トークン付き)+権限注意を表示。スマホはこのQRを読む。',
+    methods: [
+      '/qr.png を <img> で表示',
+      '/info からトークン付きURLを取得してリンク表示',
+      'Tailscale未検出時の案内表示',
+    ],
+    deps: ['server'],
+    referencedBy: ['main'],
+  },
+  {
+    id: 'style_css',
+    label: 'style.css',
+    category: 'web',
+    role: '縦持ち固定・拡大/選択抑止・トラックパッドが残り全領域を占有するレイアウト。.screen.active で画面切替、.status-dot.connected で接続色。',
+    methods: [
+      '.screen.active — 画面切替',
+      '.status-dot.connected — 接続時の色変化',
+      '.sens-pick — 感度セレクト配置(margin-left:auto)',
+      '#trackpad.dragging — ドラッグ中のビジュアルフィードバック',
+    ],
+    deps: [],
+    referencedBy: ['index_html'],
+  },
+  {
+    id: 'app_js',
+    label: 'app.js',
+    category: 'web',
+    role: 'WebSocketクライアント＋トラックパッド判定＋キーボード入力。感度セレクト・ピンチズーム・長押しドラッグも担当。',
+    methods: [
+      'connect() / send(obj) / setConnected(ok) — WS接続と送信',
+      'location.search の token を読み ws://.../ws?token=... で接続',
+      'touchstart/move/end — 1本指=move/タップ=click/2本指=scroll/ピンチ=zoom',
+      '長押しドラッグ — 450ms静止保持→down→移動→touchend→up',
+      'ピンチズーム — 指間距離変化をZOOM_STEP_PX(28px)ごとにzoom送信',
+      '感度セレクト — 0.5〜10.0のselectをJSで生成、localStorage保存',
+      'syncFromInput() — 入力欄実値の前方一致差分ミラーでcompose送信',
+    ],
+    deps: [],
+    referencedBy: ['index_html'],
+  },
+
+  // ---- 外部ライブラリ / OS ----
+  {
+    id: 'pynput',
+    label: 'pynput',
+    category: 'ext',
+    role: 'マウス・キーボードの低レベル制御ライブラリ(OSのInputイベントを生成)。',
+    methods: ['mouse.Controller', 'keyboard.Controller'],
+    deps: [],
+    referencedBy: ['controller'],
+  },
+  {
+    id: 'fastapi_uvicorn',
+    label: 'fastapi/uvicorn',
+    category: 'ext',
+    role: 'WebフレームワークとASGIサーバー。HTTP・WebSocket・静的ファイル配信を担当。',
+    methods: ['FastAPI()', 'StaticFiles()', 'WebSocket', 'uvicorn.run()'],
+    deps: [],
+    referencedBy: ['server'],
+  },
+  {
+    id: 'pystray_pil',
+    label: 'pystray/PIL',
+    category: 'ext',
+    role: 'システムトレイアイコン管理ライブラリとPython Imaging Library。アイコン画像の描画に使用。',
+    methods: ['pystray.Icon()', 'PIL.Image', 'PIL.ImageDraw'],
+    deps: [],
+    referencedBy: ['tray'],
+  },
+  {
+    id: 'qrcode_psutil',
+    label: 'qrcode/psutil',
+    category: 'ext',
+    role: 'QRコード画像生成(qrcode+pillow)とシステム情報取得(psutil)。ネットワークインターフェース列挙にも使用。',
+    methods: ['qrcode.make()', 'psutil.net_if_addrs()'],
+    deps: [],
+    referencedBy: ['netinfo'],
+  },
+
+  // ---- ビルド/CI ----
+  {
+    id: 'build_mac',
+    label: 'build_mac.spec',
+    category: 'build',
+    role: 'PyInstallerでmacOS向け .app を生成する設定ファイル。web/ を datas で同梱。',
+    methods: [
+      'datas — web/ を同梱',
+      'hiddenimports — pynput/pystray/uvicornのmacOSバックエンド',
+      'LSUIElement=True — メニューバー常駐アプリ設定',
+    ],
+    deps: ['main', 'web_dir'],
+    referencedBy: ['build_yml'],
+  },
+  {
+    id: 'build_win',
+    label: 'build_win.spec',
+    category: 'build',
+    role: 'PyInstallerでWindows向け .exe を生成する設定ファイル。web/ を datas で同梱。',
+    methods: [
+      'datas — web/ を同梱',
+      'hiddenimports — pynput/pystray/uvicornのWindowsバックエンド',
+      'console=False — ウィンドウなし起動',
+    ],
+    deps: ['main', 'web_dir'],
+    referencedBy: ['build_yml'],
+  },
+  {
+    id: 'build_yml',
+    label: 'build.yml',
+    category: 'build',
+    role: 'GitHub Actions CI。macOS(.app) と Windows(.exe) のバイナリを自動ビルドし、タグpush時にGitHub Releaseへ添付。',
+    methods: [
+      'build-macos — macos-latest(arm64) でビルド',
+      'build-windows — windows-latest でビルド',
+      'release — タグ時のみ両artifactをリリースに添付',
+    ],
+    deps: ['build_mac', 'build_win', 'requirements_txt'],
+    referencedBy: [],
+  },
+  {
+    id: 'requirements_txt',
+    label: 'requirements.txt',
+    category: 'build',
+    role: 'Python依存パッケージ一覧。fastapi / uvicorn[standard] / pynput / pystray / pillow / qrcode / psutil。',
+    methods: [],
+    deps: [],
+    referencedBy: ['build_yml'],
+  },
+  // web_dir は build_mac/win の datas 参照用の仮想ノード
+  {
+    id: 'web_dir',
+    label: 'web/ (dir)',
+    category: 'web',
+    role: 'スマホUI(index.html/style.css/app.js)とPC案内(host.html)を格納するディレクトリ。PyInstallerが同梱する。',
+    methods: [],
+    deps: ['index_html', 'host_html', 'style_css', 'app_js'],
+    referencedBy: ['build_mac', 'build_win', 'server'],
+  },
+];
+
+/** @type {Array<{from:string, to:string, type:string}>} */
+const LINKS = [
+  // import系
+  { from: 'main', to: 'server',       type: 'import' },
+  { from: 'main', to: 'netinfo',      type: 'import' },
+  { from: 'main', to: 'permissions',  type: 'import' },
+  { from: 'main', to: 'tray',         type: 'import' },
+  { from: 'server', to: 'controller', type: 'import' },
+  { from: 'server', to: 'netinfo',    type: 'import' },
+  // 外部ライブラリ
+  { from: 'controller', to: 'pynput',        type: 'ext' },
+  { from: 'server',     to: 'fastapi_uvicorn', type: 'ext' },
+  { from: 'tray',       to: 'pystray_pil',   type: 'ext' },
+  { from: 'netinfo',    to: 'qrcode_psutil', type: 'ext' },
+  // 配信 (server → static files)
+  { from: 'server', to: 'index_html', type: 'serve' },
+  { from: 'server', to: 'host_html',  type: 'serve' },
+  // web内参照
+  { from: 'index_html', to: 'style_css', type: 'webref' },
+  { from: 'index_html', to: 'app_js',    type: 'webref' },
+  // HTTP/WS
+  { from: 'host_html', to: 'server', type: 'net' },  // /qr.png, /info
+  { from: 'app_js',    to: 'server', type: 'net' },  // /ws WebSocket
+  // ビルド
+  { from: 'build_mac', to: 'main',            type: 'build' },
+  { from: 'build_mac', to: 'web_dir',         type: 'build' },
+  { from: 'build_win', to: 'main',            type: 'build' },
+  { from: 'build_win', to: 'web_dir',         type: 'build' },
+  { from: 'build_yml', to: 'build_mac',       type: 'build' },
+  { from: 'build_yml', to: 'build_win',       type: 'build' },
+  { from: 'build_yml', to: 'requirements_txt', type: 'build' },
+  // web_dir → 中身
+  { from: 'web_dir', to: 'index_html', type: 'serve' },
+  { from: 'web_dir', to: 'host_html',  type: 'serve' },
+  { from: 'web_dir', to: 'style_css',  type: 'serve' },
+  { from: 'web_dir', to: 'app_js',     type: 'serve' },
+];
+
+/**
+ * 動作フロー (起動〜スマホ操作のシーケンス)
+ * @type {Array<{nodes:string[], edges:{from:string,to:string}[], desc:string}>}
+ */
+const FLOW_STEPS = [
+  {
+    nodes: ['main'],
+    edges: [],
+    desc: 'ステップ1: main.py が起動。sys.stdout/stderr の None ガード(PyInstaller windowed対策)を実行してからアプリ処理を開始。',
+  },
+  {
+    nodes: ['main', 'server', 'fastapi_uvicorn'],
+    edges: [{ from: 'main', to: 'server' }, { from: 'server', to: 'fastapi_uvicorn' }],
+    desc: 'ステップ2: main → server.start_server_in_thread()。古い自プロセスを終了して空きポートを確保し、uvicorn を daemon スレッドで起動。実際に使うポート番号(8000等)が返る。',
+  },
+  {
+    nodes: ['main', 'netinfo', 'qrcode_psutil'],
+    edges: [{ from: 'main', to: 'netinfo' }, { from: 'netinfo', to: 'qrcode_psutil' }],
+    desc: 'ステップ3: netinfo.prime_tailscale_ip() を呼び、Tailscale/LAN IP 検出を daemon スレッドでバックグラウンド開始。起動ブロックを回避。',
+  },
+  {
+    nodes: ['main', 'host_html', 'server'],
+    edges: [{ from: 'main', to: 'host_html' }, { from: 'server', to: 'host_html' }],
+    desc: 'ステップ4: /info への疎通確認(最大~5秒リトライ)が通ったら webbrowser.open() で PCブラウザが /host.html を自動オープン。',
+  },
+  {
+    nodes: ['host_html', 'server', 'netinfo'],
+    edges: [{ from: 'host_html', to: 'server' }, { from: 'server', to: 'netinfo' }],
+    desc: 'ステップ5: host.html(PCブラウザ) が /qr.png・/info(ローカル限定・トークン付き)を取得し、大きなQRコードとトークン付き接続URLを表示。スマホはこのQRを読む。',
+  },
+  {
+    nodes: ['server', 'index_html', 'style_css', 'app_js'],
+    edges: [
+      { from: 'server', to: 'index_html' },
+      { from: 'index_html', to: 'style_css' },
+      { from: 'index_html', to: 'app_js' },
+    ],
+    desc: 'ステップ6: スマホがQRを読む。サーバーがスマホ向け操作UI(index.html + style.css + app.js)を配信。',
+  },
+  {
+    nodes: ['app_js', 'server'],
+    edges: [{ from: 'app_js', to: 'server' }],
+    desc: 'ステップ7: app.js がURLの token パラメータを読み取り、ws://.../ws?token=... で WebSocket 接続。トークン無し/不正は1008で即切断。',
+  },
+  {
+    nodes: ['server', 'controller'],
+    edges: [{ from: 'server', to: 'controller' }],
+    desc: 'ステップ8: ws_endpoint がトークン検証後、受信したJSONメッセージを handle_message(msg) へ渡す。move/click/scroll/drag/zoom/text/sensitivity メッセージを処理。',
+  },
+  {
+    nodes: ['controller', 'pynput'],
+    edges: [{ from: 'controller', to: 'pynput' }],
+    desc: 'ステップ9: controller が pynput を通じて実際にマウス/キーボードを操作(move/click/scroll/drag/zoom/type)。スマホの指の動きがPCのカーソルになる。',
+  },
+];
+
+// =============================================================================
+// グラフ物理シミュレーション (自作 force layout)
+// =============================================================================
+
+/** ノードの物理状態 */
+const nodeState = {};
+
+/** キャンバスサイズ */
+let W = 800, H = 600;
+
+/** カテゴリ別の色 */
+const CAT_COLOR = {
+  py:    '#4a9eff',
+  web:   '#3fb950',
+  ext:   '#f78166',
+  build: '#e3b341',
+  doc:   '#bc8cff',
+};
+
+/** エッジ種別スタイル */
+const EDGE_STYLE = {
+  import: { stroke: '#4a9eff', dash: '',         width: 1.8 },
+  ext:    { stroke: '#f78166', dash: '',         width: 1.5 },
+  serve:  { stroke: '#3fb950', dash: '',         width: 1.5 },
+  net:    { stroke: '#e3b341', dash: '6,3',      width: 1.8 },
+  webref: { stroke: '#bc8cff', dash: '',         width: 1.5 },
+  build:  { stroke: '#8b949e', dash: '4,4',      width: 1.2 },
+};
+
+/** ノード半径 (カテゴリ別) */
+function nodeRadius(cat) {
+  return cat === 'ext' ? 22 : cat === 'build' ? 18 : 26;
+}
+
+/** 初期座標を大まかにカテゴリで分散 */
+function initialPos(id, category) {
+  // カテゴリごとにエリアを割り当て
+  const sectors = { py: [0.35, 0.5], web: [0.65, 0.5], ext: [0.5, 0.8], build: [0.5, 0.2], doc: [0.8, 0.2] };
+  const [cx, cy] = sectors[category] || [0.5, 0.5];
+  return {
+    x: cx * W + (Math.random() - 0.5) * W * 0.3,
+    y: cy * H + (Math.random() - 0.5) * H * 0.3,
+    vx: 0, vy: 0,
+    fixed: false,
+  };
+}
+
+/** シミュレーション初期化 */
+function initSimulation() {
+  W = document.getElementById('graph-container').clientWidth || 800;
+  H = document.getElementById('graph-container').clientHeight || 600;
+  NODES.forEach(n => {
+    if (!nodeState[n.id]) {
+      nodeState[n.id] = initialPos(n.id, n.category);
+    }
+  });
+}
+
+/** 1ティックの物理演算 */
+function tickPhysics() {
+  const REPEL  = 3500;   // ノード間反発
+  const SPRING = 0.06;   // エッジのバネ
+  const DAMP   = 0.75;   // 速度減衰
+  const CENTER = 0.008;  // 中心引力
+  const REST   = 120;    // エッジの自然長
+
+  const ids = NODES.map(n => n.id);
+
+  // 反発力 (全ペア)
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const a = nodeState[ids[i]];
+      const b = nodeState[ids[j]];
+      if (!a || !b) continue;
+      let dx = a.x - b.x;
+      let dy = a.y - b.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const force = REPEL / (dist * dist);
+      const fx = (dx / dist) * force;
+      const fy = (dy / dist) * force;
+      if (!a.fixed) { a.vx += fx; a.vy += fy; }
+      if (!b.fixed) { b.vx -= fx; b.vy -= fy; }
+    }
+  }
+
+  // バネ力 (エッジ)
+  LINKS.forEach(lk => {
+    const a = nodeState[lk.from];
+    const b = nodeState[lk.to];
+    if (!a || !b) return;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const stretch = dist - REST;
+    const fx = (dx / dist) * stretch * SPRING;
+    const fy = (dy / dist) * stretch * SPRING;
+    if (!a.fixed) { a.vx += fx; a.vy += fy; }
+    if (!b.fixed) { b.vx -= fx; b.vy -= fy; }
+  });
+
+  // 中心引力 + 速度更新
+  ids.forEach(id => {
+    const s = nodeState[id];
+    if (!s || s.fixed) return;
+    s.vx += (W / 2 - s.x) * CENTER;
+    s.vy += (H / 2 - s.y) * CENTER;
+    s.vx *= DAMP;
+    s.vy *= DAMP;
+    s.x += s.vx;
+    s.y += s.vy;
+    // 壁バウンド
+    const r = nodeRadius(NODES.find(n => n.id === id)?.category || 'py') + 4;
+    if (s.x < r) { s.x = r; s.vx = Math.abs(s.vx) * 0.5; }
+    if (s.x > W - r) { s.x = W - r; s.vx = -Math.abs(s.vx) * 0.5; }
+    if (s.y < r) { s.y = r; s.vy = Math.abs(s.vy) * 0.5; }
+    if (s.y > H - r) { s.y = H - r; s.vy = -Math.abs(s.vy) * 0.5; }
+  });
+}
+
+// =============================================================================
+// SVG 描画
+// =============================================================================
+
+const svgNS = 'http://www.w3.org/2000/svg';
+const edgesLayer   = document.getElementById('edges-layer');
+const nodesLayer   = document.getElementById('nodes-layer');
+const particlesLayer = document.getElementById('particles-layer');
+
+/** エッジSVG要素のマップ */
+const edgeSvgMap = {}; // key: `${from}_${to}`
+/** ノードSVG要素のマップ */
+const nodeSvgMap = {}; // key: id → { group, circle, label }
+
+/** SVG要素を初期化 */
+function buildSvgElements() {
+  // エッジ
+  LINKS.forEach(lk => {
+    const key = `${lk.from}_${lk.to}`;
+    const style = EDGE_STYLE[lk.type] || EDGE_STYLE.import;
+    const line = document.createElementNS(svgNS, 'line');
+    line.setAttribute('class', 'edge');
+    line.setAttribute('stroke', style.stroke);
+    line.setAttribute('stroke-width', style.width);
+    line.setAttribute('stroke-dasharray', style.dash);
+    line.setAttribute('marker-end', `url(#arrow-${lk.type})`);
+    line.dataset.from = lk.from;
+    line.dataset.to   = lk.to;
+    line.dataset.type = lk.type;
+    edgesLayer.appendChild(line);
+    edgeSvgMap[key] = line;
+  });
+
+  // ノード
+  NODES.forEach(n => {
+    const g = document.createElementNS(svgNS, 'g');
+    g.setAttribute('class', 'node-group');
+    g.dataset.id = n.id;
+
+    const r = nodeRadius(n.category);
+    const circle = document.createElementNS(svgNS, 'circle');
+    circle.setAttribute('r', r);
+    circle.setAttribute('class', 'node-circle');
+    circle.setAttribute('fill', CAT_COLOR[n.category] + '33');   // 薄塗り
+    circle.setAttribute('stroke', CAT_COLOR[n.category]);
+    circle.style.color = CAT_COLOR[n.category];
+
+    const text = document.createElementNS(svgNS, 'text');
+    text.setAttribute('class', 'node-label');
+    text.textContent = n.label;
+
+    g.appendChild(circle);
+    g.appendChild(text);
+    nodesLayer.appendChild(g);
+    nodeSvgMap[n.id] = { group: g, circle, text };
+
+    // イベント
+    g.addEventListener('mouseenter', () => onNodeHover(n.id));
+    g.addEventListener('mouseleave', () => onNodeLeave());
+    g.addEventListener('click', (e) => { e.stopPropagation(); onNodeClick(n.id); });
+
+    // ドラッグ
+    let dragging = false;
+    let dragOffX = 0, dragOffY = 0;
+    g.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      dragging = true;
+      const rect = document.getElementById('graph').getBoundingClientRect();
+      dragOffX = e.clientX - rect.left - nodeState[n.id].x;
+      dragOffY = e.clientY - rect.top  - nodeState[n.id].y;
+      nodeState[n.id].fixed = true;
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+    function onMouseMove(e) {
+      if (!dragging) return;
+      const rect = document.getElementById('graph').getBoundingClientRect();
+      nodeState[n.id].x = e.clientX - rect.left - dragOffX;
+      nodeState[n.id].y = e.clientY - rect.top  - dragOffY;
+    }
+    function onMouseUp() {
+      dragging = false;
+      nodeState[n.id].fixed = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    }
+  });
+
+  // SVGクリックでパネルリセット
+  document.getElementById('graph').addEventListener('click', () => {
+    if (!isPlaying) clearHighlight();
+  });
+}
+
+/** エッジの座標を更新 */
+function updateEdgePositions() {
+  LINKS.forEach(lk => {
+    const key = `${lk.from}_${lk.to}`;
+    const line = edgeSvgMap[key];
+    const a = nodeState[lk.from];
+    const b = nodeState[lk.to];
+    if (!line || !a || !b) return;
+
+    // エッジをノード縁まで縮める
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const rA = nodeRadius(NODES.find(n => n.id === lk.from)?.category || 'py');
+    const rB = nodeRadius(NODES.find(n => n.id === lk.to)?.category   || 'py') + 8; // 矢印分
+    const x1 = a.x + (dx / dist) * rA;
+    const y1 = a.y + (dy / dist) * rA;
+    const x2 = b.x - (dx / dist) * rB;
+    const y2 = b.y - (dy / dist) * rB;
+
+    line.setAttribute('x1', x1);
+    line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2);
+    line.setAttribute('y2', y2);
+  });
+}
+
+/** ノードの座標を更新 */
+function updateNodePositions() {
+  NODES.forEach(n => {
+    const s = nodeState[n.id];
+    const el = nodeSvgMap[n.id];
+    if (!s || !el) return;
+    el.group.setAttribute('transform', `translate(${s.x},${s.y})`);
+  });
+}
+
+// =============================================================================
+// ホバー・ハイライト
+// =============================================================================
+
+let hoveredNodeId = null;
+let selectedNodeId = null;
+let isPlaying = false;
+
+function onNodeHover(id) {
+  if (isPlaying) return;
+  hoveredNodeId = id;
+  applyHighlight([id], getConnectedEdges(id));
+}
+
+function onNodeLeave() {
+  if (isPlaying) return;
+  hoveredNodeId = null;
+  if (selectedNodeId) {
+    applyHighlight([selectedNodeId], getConnectedEdges(selectedNodeId));
+  } else {
+    clearHighlight();
+  }
+}
+
+function onNodeClick(id) {
+  if (isPlaying) return;
+  selectedNodeId = (selectedNodeId === id) ? null : id;
+  if (selectedNodeId) {
+    applyHighlight([selectedNodeId], getConnectedEdges(selectedNodeId));
+    showNodePanel(selectedNodeId);
+  } else {
+    clearHighlight();
+    resetPanel();
+  }
+}
+
+/** 指定ノードに接続するエッジを返す */
+function getConnectedEdges(id) {
+  return LINKS.filter(lk => lk.from === id || lk.to === id);
+}
+
+/** ハイライト適用 */
+function applyHighlight(nodeIds, edgeLinks) {
+  const nodeSet = new Set(nodeIds);
+  // 直接繋がるノードも薄ハイライト
+  edgeLinks.forEach(lk => { nodeSet.add(lk.from); nodeSet.add(lk.to); });
+  const edgeSet = new Set(edgeLinks.map(lk => `${lk.from}_${lk.to}`));
+
+  NODES.forEach(n => {
+    const el = nodeSvgMap[n.id];
+    if (!el) return;
+    if (nodeSet.has(n.id)) {
+      el.group.classList.remove('dimmed');
+      el.group.classList.add('highlight');
+    } else {
+      el.group.classList.add('dimmed');
+      el.group.classList.remove('highlight');
+    }
+  });
+  LINKS.forEach(lk => {
+    const line = edgeSvgMap[`${lk.from}_${lk.to}`];
+    if (!line) return;
+    if (edgeSet.has(`${lk.from}_${lk.to}`)) {
+      line.classList.remove('dimmed');
+      line.classList.add('highlight');
+    } else {
+      line.classList.add('dimmed');
+      line.classList.remove('highlight');
+    }
+  });
+}
+
+/** ハイライトを全解除 */
+function clearHighlight() {
+  NODES.forEach(n => {
+    const el = nodeSvgMap[n.id];
+    if (!el) return;
+    el.group.classList.remove('dimmed', 'highlight', 'playing');
+  });
+  LINKS.forEach(lk => {
+    const line = edgeSvgMap[`${lk.from}_${lk.to}`];
+    if (!line) return;
+    line.classList.remove('dimmed', 'highlight', 'playing');
+    line.setAttribute('stroke', (EDGE_STYLE[lk.type] || EDGE_STYLE.import).stroke);
+    line.setAttribute('marker-end', `url(#arrow-${lk.type})`);
+  });
+}
+
+// =============================================================================
+// サイドパネル
+// =============================================================================
+
+function showNodePanel(id) {
+  const n = NODES.find(x => x.id === id);
+  if (!n) return;
+  const panel = document.getElementById('panel-content');
+  const catLabel = { py: 'Python(PC)', web: 'Web(スマホ)', ext: '外部ライブラリ', build: 'ビルド/CI', doc: 'ドキュメント' };
+  const tagClass = `tag tag-${n.category}`;
+
+  let html = `<div id="panel-title">${escHtml(n.label)}</div>`;
+  html += `<span class="${tagClass}">${catLabel[n.category] || n.category}</span>`;
+  html += `<div class="section-title">役割</div><div class="role-text">${escHtml(n.role)}</div>`;
+
+  if (n.methods && n.methods.length > 0) {
+    html += `<div class="section-title">主要メソッド / 型</div><ul>`;
+    n.methods.forEach(m => { html += `<li>${escHtml(m)}</li>`; });
+    html += `</ul>`;
+  }
+  if (n.deps && n.deps.length > 0) {
+    html += `<div class="section-title">依存 (import / 参照先)</div><ul>`;
+    n.deps.forEach(dep => {
+      const dn = NODES.find(x => x.id === dep);
+      html += `<li><span class="tag tag-${dn ? dn.category : 'py'}">${escHtml(dn ? dn.label : dep)}</span></li>`;
+    });
+    html += `</ul>`;
+  }
+  if (n.referencedBy && n.referencedBy.length > 0) {
+    html += `<div class="section-title">被参照 (参照元)</div><ul>`;
+    n.referencedBy.forEach(ref => {
+      const rn = NODES.find(x => x.id === ref);
+      html += `<li><span class="tag tag-${rn ? rn.category : 'py'}">${escHtml(rn ? rn.label : ref)}</span></li>`;
+    });
+    html += `</ul>`;
+  }
+
+  panel.innerHTML = html;
+}
+
+function resetPanel() {
+  document.getElementById('panel-content').innerHTML = '<p class="panel-empty">ノードをクリックすると詳細を表示します。</p>';
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// =============================================================================
+// 動作フロー再生
+// =============================================================================
+
+let flowStep = -1;            // 現在のステップ (-1 = 未再生)
+let flowTimer = null;         // setTimeoutハンドル
+let playState = 'stopped';   // 'stopped' | 'playing' | 'paused'
+let particles = [];           // 粒子リスト
+
+const playBtn  = document.getElementById('play-btn');
+const prevBtn  = document.getElementById('prev-btn');
+const nextBtn  = document.getElementById('next-btn');
+const stopBtn  = document.getElementById('stop-btn');
+const speedSel = document.getElementById('speed-select');
+const stepLabel = document.getElementById('step-label');
+const statusBar = document.getElementById('status-bar');
+
+/** 現在の速度倍率 (秒/ステップ) */
+function stepDuration() {
+  return parseFloat(speedSel.value) * 2400; // ms
+}
+
+function updatePlayBtn() {
+  if (playState === 'playing') {
+    playBtn.textContent = '⏸ 一時停止';
+    playBtn.classList.add('active');
+  } else {
+    playBtn.textContent = '▶ 動作の流れを再生';
+    playBtn.classList.remove('active');
+  }
+}
+
+playBtn.addEventListener('click', () => {
+  if (playState === 'stopped' || playState === 'paused') {
+    startPlay();
+  } else {
+    pausePlay();
+  }
+});
+
+prevBtn.addEventListener('click', () => {
+  clearFlowTimer();
+  if (flowStep > 0) {
+    flowStep--;
+    renderFlowStep(flowStep);
+    if (playState === 'playing') scheduleNextStep();
+  }
+});
+
+nextBtn.addEventListener('click', () => {
+  clearFlowTimer();
+  if (flowStep < FLOW_STEPS.length - 1) {
+    flowStep++;
+    renderFlowStep(flowStep);
+    if (playState === 'playing') scheduleNextStep();
+  } else {
+    stopPlay();
+  }
+});
+
+stopBtn.addEventListener('click', stopPlay);
+
+function startPlay() {
+  isPlaying = true;
+  playState = 'playing';
+  updatePlayBtn();
+  if (flowStep < 0) flowStep = 0;
+  renderFlowStep(flowStep);
+  scheduleNextStep();
+}
+
+function pausePlay() {
+  clearFlowTimer();
+  playState = 'paused';
+  updatePlayBtn();
+}
+
+function stopPlay() {
+  clearFlowTimer();
+  isPlaying = false;
+  playState = 'stopped';
+  flowStep = -1;
+  updatePlayBtn();
+  stepLabel.textContent = 'ステップ: —';
+  statusBar.textContent = 'ノードをホバーでハイライト、クリックで詳細表示。「▶ 動作の流れを再生」で起動〜操作のシーケンスをアニメ再生。';
+  clearHighlight();
+  clearParticles();
+}
+
+function scheduleNextStep() {
+  clearFlowTimer();
+  flowTimer = setTimeout(() => {
+    if (flowStep < FLOW_STEPS.length - 1) {
+      flowStep++;
+      renderFlowStep(flowStep);
+      scheduleNextStep();
+    } else {
+      stopPlay();
+    }
+  }, stepDuration());
+}
+
+function clearFlowTimer() {
+  if (flowTimer !== null) { clearTimeout(flowTimer); flowTimer = null; }
+}
+
+/** 指定ステップのビジュアルを適用 */
+function renderFlowStep(idx) {
+  const step = FLOW_STEPS[idx];
+  if (!step) return;
+  stepLabel.textContent = `ステップ: ${idx + 1} / ${FLOW_STEPS.length}`;
+  statusBar.textContent = step.desc;
+
+  const activeNodes = new Set(step.nodes);
+  const activeEdges = new Set(step.edges.map(e => `${e.from}_${e.to}`));
+
+  // ノード
+  NODES.forEach(n => {
+    const el = nodeSvgMap[n.id];
+    if (!el) return;
+    if (activeNodes.has(n.id)) {
+      el.group.classList.remove('dimmed');
+      el.group.classList.add('playing');
+    } else {
+      el.group.classList.add('dimmed');
+      el.group.classList.remove('playing');
+    }
+  });
+
+  // エッジ
+  LINKS.forEach(lk => {
+    const key = `${lk.from}_${lk.to}`;
+    const line = edgeSvgMap[key];
+    if (!line) return;
+    if (activeEdges.has(key)) {
+      line.classList.remove('dimmed');
+      line.classList.add('playing');
+      line.setAttribute('stroke', '#f0e040');
+      line.setAttribute('marker-end', 'url(#arrow-playing)');
+    } else {
+      line.classList.add('dimmed');
+      line.classList.remove('playing');
+      line.setAttribute('stroke', (EDGE_STYLE[lk.type] || EDGE_STYLE.import).stroke);
+      line.setAttribute('marker-end', `url(#arrow-${lk.type})`);
+    }
+  });
+
+  // 粒子を発射
+  clearParticles();
+  step.edges.forEach(e => spawnParticle(e.from, e.to));
+}
+
+// =============================================================================
+// 粒子アニメーション
+// =============================================================================
+
+/**
+ * @typedef {{ id:string, fromId:string, toId:string, t:number, speed:number, el:SVGCircleElement }} Particle
+ */
+
+function spawnParticle(fromId, toId) {
+  const el = document.createElementNS(svgNS, 'circle');
+  el.setAttribute('r', 5);
+  el.setAttribute('fill', '#f0e040');
+  el.setAttribute('opacity', '0.9');
+  particlesLayer.appendChild(el);
+  const p = {
+    id: `${fromId}_${toId}_${Date.now()}_${Math.random()}`,
+    fromId, toId,
+    t: 0,
+    speed: 0.012,
+    el,
+    done: false,
+  };
+  particles.push(p);
+}
+
+function clearParticles() {
+  particles.forEach(p => { if (p.el.parentNode) p.el.parentNode.removeChild(p.el); });
+  particles = [];
+}
+
+/** 粒子の位置を更新 */
+function updateParticles() {
+  const alive = [];
+  particles.forEach(p => {
+    const a = nodeState[p.fromId];
+    const b = nodeState[p.toId];
+    if (!a || !b) return;
+    p.t += p.speed;
+    if (p.t > 1) {
+      // 再ループ
+      p.t = 0;
+    }
+    const x = a.x + (b.x - a.x) * p.t;
+    const y = a.y + (b.y - a.y) * p.t;
+    p.el.setAttribute('cx', x);
+    p.el.setAttribute('cy', y);
+    alive.push(p);
+  });
+  particles = alive;
+}
+
+// =============================================================================
+// メインアニメーションループ
+// =============================================================================
+
+let rafId = null;
+let tickCount = 0;
+const SETTLE_TICKS = 300; // 最初の300tickは物理強め
+
+function animate() {
+  // サイズ更新
+  const container = document.getElementById('graph-container');
+  const newW = container.clientWidth;
+  const newH = container.clientHeight;
+  if (newW !== W || newH !== H) {
+    W = newW; H = newH;
+  }
+
+  // 物理 (収束したら回数を減らす)
+  const physTicks = tickCount < SETTLE_TICKS ? 3 : 1;
+  for (let i = 0; i < physTicks; i++) tickPhysics();
+  tickCount++;
+
+  updateEdgePositions();
+  updateNodePositions();
+  updateParticles();
+
+  rafId = requestAnimationFrame(animate);
+}
+
+// =============================================================================
+// レイアウトリセット
+// =============================================================================
+
+document.getElementById('reset-layout-btn').addEventListener('click', () => {
+  Object.keys(nodeState).forEach(id => delete nodeState[id]);
+  initSimulation();
+  tickCount = 0;
+});
+
+// =============================================================================
+// 起動
+// =============================================================================
+
+window.addEventListener('DOMContentLoaded', () => {
+  initSimulation();
+  buildSvgElements();
+  animate();
+});
+</script>
+</body>
+</html>
