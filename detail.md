@@ -72,8 +72,8 @@
 
 ## app/main.py
 - 役割: エントリーポイント。サーバー起動(daemon) → Tailscale検出をバックグラウンド開始 → **`/info` の疎通確認(リトライ)が取れてから** PC のブラウザで `/host.html` を自動オープン → pystray をメインスレッドで run（終了まで常駐）。tkinter 不使用。
-- 主要: `main()`。`server.start_server_in_thread(port=8000)` の**戻り値（実際のポート番号）を `port` に受け取り**、その後の URL 組み立て（`host_url`, `info_url`）・ブラウザ起動・ヘッドレスフォールバックに使用（ポートが8001等にフォールバックしても正しく動く）。`_open_browser_when_ready()`（`urllib.request` で `/info` を最大~5秒リトライし200で開く）、起動時 `netinfo.prime_tailscale_ip()`、トレイの「Tailscale入手」判定は `netinfo.tailscale_ip_cached()`（非ブロック）。トレイ不可時は URL/ASCII QR のヘッドレスにフォールバック。
-- 依存: `app.server`, `app.netinfo`, `app.permissions`, `app.tray`, `webbrowser`, `urllib.request`。
+- 主要: `main()`。`server.start_server_in_thread(port=8000)` の**戻り値（実際のポート番号）を `port` に受け取り**、その後の URL 組み立て（`host_url`, `info_url`）・ブラウザ起動・ヘッドレスフォールバックに使用（ポートが8001等にフォールバックしても正しく動く）。`_open_browser_when_ready()`（`urllib.request` で `/info` を最大~5秒リトライし200で開く）、起動時 `netinfo.prime_tailscale_ip()`、トレイの「Tailscale入手」判定は `netinfo.tailscale_ip_cached()`（非ブロック）。トレイ不可時は URL/ASCII QR のヘッドレスにフォールバック。**起動時に `sys.stdout`/`sys.stderr` の None ガード**（PyInstaller windowed ビルド対策）を `from app import ...` の直前で実行し、uvicorn のログ初期化クラッシュを防ぐ（Windows/Mac .app 両対応）。
+- 依存: `app.server`, `app.netinfo`, `app.permissions`, `app.tray`, `webbrowser`, `urllib.request`, `sys`。
 - 被参照: 実行起点（`python -m app.main` / PyInstaller のエントリ）。
 
 ## app/requirements.txt

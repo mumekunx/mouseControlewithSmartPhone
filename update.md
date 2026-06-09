@@ -1,5 +1,17 @@
 # 進捗ログ（新しいものが上）
 
+## 2026-06-09 12:11 — Windows/.app で起動直後にクラッシュ（stdout=None）を修正
+
+- **依頼**: Windows の PhoneMouse.exe を起動すると `AttributeError: 'NoneType' object has no attribute 'isatty'` / `ValueError: Unable to configure formatter 'default'` でクラッシュするバグを修正する。
+- **立案**:
+  - **症状**: PyInstaller を `console=False`（windowed ビルド）でビルドすると、Windows では `sys.stdout` / `sys.stderr` が `None` になる。uvicorn のデフォルトログ formatter（ColourizedFormatter）が `sys.stdout.isatty()` を参照するため、`None` のまま `start_server_in_thread` に入るとクラッシュ。Mac の .app ダブルクリック起動でも同様に発生しうる。
+  - **方針**: `app/main.py` の import 群の直後・`from app import server, ...` の直前に、`sys.stdout` / `sys.stderr` が `None` なら `open(os.devnull, "w")` で差し替えるガードを挿入する。ガードは通常のターミナル起動では no-op（None でなければスキップ）。変更ファイルは `app/main.py` のみ。
+  - **影響範囲**: `app/main.py`（`import sys` 追加＋Noneガード挿入）、`update.md`（本エントリ）、`detail.md`（app/main.py の記述に1行追記）。
+- **完了**:
+  - `app/main.py`: `import sys` を標準ライブラリ import に追加。`from app import ...` の直前に stdout/stderr の None ガードを挿入（Python の `for` ループで両ストリームを一括処理）。
+  - テスト: `~/.venvs/mousecontrol/bin/python -m py_compile app/main.py app/server.py && echo "compile OK"` → `compile OK`。`~/.venvs/mousecontrol/bin/python -c "import app.main; print('import OK')"` → `import OK`（例外なし）。
+  - 残課題: Windows 実機・Mac .app での動作確認はユーザー環境で。修正反映には再ビルド（`pyinstaller packaging/build_win.spec` / `build_mac.spec`）と再リリースが必要。
+
 ## 2026-06-08 12:13 — README にダウンロード（Release）導線を追加
 
 - **依頼**: v1.0.0 を GitHub Release で公開済みのため、README 冒頭にダウンロードリンクセクションを追加して一般ユーザーが即 DL できる導線を作る。
