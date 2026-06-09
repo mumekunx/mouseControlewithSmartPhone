@@ -1,5 +1,11 @@
 # 進捗ログ（新しいものが上）
 
+## 2026-06-09 12:34 — README のダウンロードリンクを v1.0.1 に更新
+
+- **立案**: ダウンロードセクションの直リンクが v1.0.0（windowed 起動クラッシュが残る版）を指していたため、修正済みの v1.0.1 へ差し替える。
+- **影響範囲**: `README.md`（「最新版: v1.0.0」→「v1.0.1」、Mac zip / Windows exe の releases/download パス内バージョン番号を変更）。`releases/latest` のバージョン非依存リンクは変更なし。
+- **完了**: `README.md` のダウンロードセクション内 v1.0.0 の直リンク 3 箇所を v1.0.1 に更新。他セクション・変更履歴の v1.0.0 記述は変更なし。
+
 ## 2026-06-09 12:11 — Windows/.app で起動直後にクラッシュ（stdout=None）を修正
 
 - **依頼**: Windows の PhoneMouse.exe を起動すると `AttributeError: 'NoneType' object has no attribute 'isatty'` / `ValueError: Unable to configure formatter 'default'` でクラッシュするバグを修正する。
